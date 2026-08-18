@@ -1,0 +1,81 @@
+rules_version = '2';
+
+// Tether — DM storage rules (build doc §3.3).
+//
+// A DM thread lives at dms/{pairId}, where pairId is the two participants' UIDs
+// sorted and joined with "_". That means the document path itself names exactly
+// who is allowed in, so membership needs no lookup — it is read straight off
+// the path. Firebase Auth UIDs are alphanumeric, so "_" is an unambiguous
+// separator.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    // The two UIDs encoded in the thread id.
+    function members(pairId) {
+      return pairId.split('_');
+    }
+
+    function isParticipant(pairId) {
+      return signedIn() && me() in members(pairId);
+    }
+
+    // --- Profiles -----------------------------------------------------------
+    // Minimal now; the full directory schema (§3.1) lands in Phase 3.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && me() == uid;
+    }
+
+    // --- DM threads ---------------------------------------------------------
+    match /dms/{pairId} {
+
+      // The thread doc itself holds nothing in v1; messages live beneath it.
+      allow read: if isParticipant(pairId);
+      allow write: if false;
+
+      match /messages/{messageId} {
+
+        allow read: if isParticipant(pairId);
+
+        // A sender may only write messages as themselves, and may not list
+        // themselves as pending — they already have the message.
+        allow create: if isParticipant(pairId)
+          && request.resource.data.senderUid == me()
+          && request.resource.data.content is string
+          && request.resource.data.content.size() > 0
+          && request.resource.data.content.size() <= 4000
+          && request.resource.data.sentAt == request.time
+          && request.resource.data.expireAt is timestamp
+          && request.resource.data.pendingFor is list
+          && request.resource.data.pendingFor.hasOnly(members(pairId))
+          && !(me() in request.resource.data.pendingFor);
+
+        // Acking delivery: the recipient removes only themselves from
+        // pendingFor. No other field may change.
+        allow update: if isParticipant(pairId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingFor'])
+          && !(me() in request.resource.data.pendingFor)
+          && request.resource.data.pendingFor.hasOnly(resource.data.pendingFor);
+
+        // Once nobody is waiting on it, either participant may clean it up.
+        // The TTL policy on expireAt is the backstop for messages never acked.
+        allow delete: if isParticipant(pairId)
+          && resource.data.pendingFor.size() == 0;
+      }
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://accounts.google.com; frame-src https://*.firebaseapp.com https://accounts.google.com;"
+    />
+    <title>Tether</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- No config file on disk yet. -->
+    <div id="setup" class="screen setup hidden">
+      <h1>Tether isn't pointed at a backend yet</h1>
+      <p>
+        Copy <code>config/firebase.config.example.json</code> to
+        <code>config/firebase.config.json</code>, paste in your Firebase web app config,
+        then restart.
+      </p>
+    </div>
+
+    <!-- Signed out. -->
+    <div id="auth" class="screen auth hidden">
+      <div class="card">
+        <h1>Tether</h1>
+        <p class="sub">Quietly always-on.</p>
+        <form id="auth-form">
+          <input id="email" type="email" placeholder="Email" autocomplete="username" required />
+          <input
+            id="password"
+            type="password"
+            placeholder="Password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="submit">Sign in / Sign up</button>
+        </form>
+        <button id="google-btn" class="secondary">Continue with Google</button>
+        <p id="auth-error" class="error"></p>
+      </div>
+    </div>
+
+    <!-- Signed in. -->
+    <div id="chat" class="screen chat hidden">
+      <header class="bar">
+        <span class="dot" id="status-dot"></span>
+        <span class="who"><strong id="self-label">—</strong></span>
+        <form id="peer-form" class="peer-form">
+          <input id="peer-input" type="text" placeholder="Peer UID" autocomplete="off" />
+          <button type="submit">Open</button>
+        </form>
+        <button id="sign-out" class="linkish" type="button">Sign out</button>
+      </header>
+
+      <div class="uidbar">
+        your UID (share this) <code id="my-uid">—</code>
+      </div>
+
+      <main id="messages" class="messages"></main>
+
+      <form id="composer" class="composer">
+        <input id="input" type="text" placeholder="Message" autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>

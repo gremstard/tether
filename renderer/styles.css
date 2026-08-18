@@ -1,0 +1,184 @@
+:root {
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --line: #2a2f38;
+  --text: #e6e8ec;
+  --muted: #8b93a1;
+  --mine: #3b5bdb;
+  --theirs: #262b34;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+.hidden { display: none !important; }
+
+.setup { padding: 48px; max-width: 620px; }
+.setup h1 { font-size: 20px; }
+.setup code { background: var(--panel); padding: 2px 6px; border-radius: 4px; }
+
+.chat { display: flex; flex-direction: column; height: 100vh; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+.bar strong { color: var(--text); font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #d64545; }
+.dot.live { background: #37b24d; }
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--theirs);
+  align-self: flex-start;
+  word-wrap: break-word;
+}
+.msg.mine { background: var(--mine); align-self: flex-end; }
+.msg .meta { display: block; margin-top: 4px; font-size: 11px; opacity: 0.6; }
+
+.empty { color: var(--muted); margin: auto; }
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.composer input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.composer input:focus { outline: none; border-color: var(--mine); }
+.composer button {
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--mine);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.composer button:disabled { opacity: 0.5; cursor: default; }
+
+/* --- auth screen --------------------------------------------------------- */
+
+.auth { display: flex; align-items: center; justify-content: center; height: 100vh; }
+
+.card {
+  width: 320px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  text-align: center;
+}
+.card h1 { margin: 0; font-size: 24px; letter-spacing: 0.02em; }
+.card .sub { margin: 4px 0 20px; color: var(--muted); font-size: 13px; }
+.card form { display: flex; flex-direction: column; gap: 8px; }
+.card input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.card input:focus { outline: none; border-color: var(--mine); }
+.card button {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--mine);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.card .secondary {
+  width: 100%;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.error { color: #ff8787; font-size: 12px; min-height: 16px; margin: 12px 0 0; }
+
+/* --- chat chrome --------------------------------------------------------- */
+
+.peer-form { display: flex; gap: 6px; margin-left: auto; }
+.peer-form input {
+  width: 220px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.peer-form input:focus { outline: none; border-color: var(--mine); }
+.peer-form button {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--mine);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.linkish {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.uidbar {
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.uidbar code {
+  color: var(--text);
+  background: var(--panel);
+  padding: 2px 6px;
+  border-radius: 4px;
+  user-select: all;
+}

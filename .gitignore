@@ -1,0 +1,11 @@
+node_modules/
+renderer/dist/
+dist/
+out/
+
+# Real Firebase client config. Not actually secret (see README), but kept out of
+# git so a throwaway dev project doesn't get pinned into history.
+config/firebase.config.json
+
+*.log
+.DS_Store

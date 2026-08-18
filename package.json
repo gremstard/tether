@@ -1,0 +1,32 @@
+{
+  "name": "tether",
+  "version": "0.1.0",
+  "description": "Federated, self-hosted chat. Phase 0 proof of concept.",
+  "main": "main/index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "esbuild renderer/app.js --bundle --format=iife --platform=browser --outfile=renderer/dist/bundle.js",
+    "watch": "npm run build -- --watch",
+    "start": "npm run build && electron .",
+    "start:friend": "npm run build && TETHER_UID=phase0-user-b electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "esbuild": "^0.28.2"
+  },
+  "allowScripts": {
+    "electron@43.4.0": true,
+    "esbuild@0.28.2": true,
+    "@firebase/util@1.15.2": true,
+    "protobufjs@7.6.5": true
+  },
+  "dependencies": {
+    "firebase": "^12.17.1"
+  },
+  "private": true
+}
