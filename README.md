@@ -8,8 +8,9 @@ architecture and the full phase plan.
 
 Phases 0–3: real Firebase Auth with usernames, the real DM data model, rules
 covered by an emulator test suite, local message history, native OS
-notifications, tray residency with start-at-login, and multiple conversations
-that all receive in the background. Servers (communities) are not built yet.
+notifications, tray residency with start-at-login, multiple conversations that
+all receive in the background, and servers — Discord-style communities, each in
+its own Firebase project.
 
 Tether runs on the Firebase **Spark** plan permanently — no Cloud Functions, no
 Cloud Storage, no TTL policies. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for
@@ -66,6 +67,8 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 | `scripts/make-icons.js` | Generates the tray and app icons                      |
 | `renderer/sweep.js` | Client-side cleanup of abandoned messages                  |
 | `renderer/threads.js` | Per-conversation intake and the DM list                 |
+| `renderer/servers.js` | Connecting to server projects, channels, membership    |
+| `templates/server.rules` | Rules a founder deploys into their own project      |
 | `renderer/profile.js` | Usernames, avatars, image downscaling                   |
 | `shared/schema.js`  | `pairId` / message shape, used by both processes          |
 | `public/`           | Landing page deployed to Firebase Hosting                 |
@@ -77,8 +80,8 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 npm run test:rules
 ```
 
-Runs unit tests, 29 security-rule cases, and an end-to-end intake test against
-the Firestore emulator (needs Java). Since
+Runs five suites against the Firestore emulator (needs Java): unit tests,
+directory rules, end-to-end DM intake, server rules, and the server client. Since
 there is no trusted server code anywhere, the rules are the only enforcement
 point — they are worth testing properly.
 
@@ -113,6 +116,14 @@ Live at https://chat-tether.web.app.
 - **Google sign-in is untested.** The popup flow is wired up and the main process
   allows the auth window, but `file://` renderer origins are an awkward fit for
   Firebase's popup flow. Email/password is the safe path for now.
-- No group DMs, and no server (community) support yet.
+- No group DMs.
+- Servers require a founder to create a Firebase project by hand and deploy
+  `templates/server.rules` into it — see [`docs/SERVERS.md`](docs/SERVERS.md).
+  Automating that needs the Firebase Management API and is out of scope.
+- A handle inside a server is unique to that server and is not tied to your
+  directory handle; Firebase Auth is per-project and Spark has no way to bridge
+  identities.
+- Channel messages are read live from the server project — no offline mirror,
+  unlike DMs.
 - Local history grows until you clear it — there is no retention policy on your
   own copy, by design.

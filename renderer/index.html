@@ -102,6 +102,37 @@
         <span class="hint">Share your username so people can add you.</span>
       </div>
 
+      <!-- Join or create a server -->
+      <section id="server-dialog" class="settings hidden">
+        <div class="setting">
+          <label for="invite-input">Join with an invite code</label>
+          <div class="row">
+            <input id="invite-input" type="text" placeholder="TTHR1-..." autocomplete="off" />
+            <button id="join-server" type="button">Join</button>
+          </div>
+          <p class="hint">
+            You'll be asked to sign in to that community's project — servers are
+            separate Firebase projects with their own accounts.
+          </p>
+        </div>
+
+        <div class="setting">
+          <label for="server-config">Found a server in your own project</label>
+          <div class="row">
+            <input id="server-title" type="text" placeholder="Server name" autocomplete="off" />
+          </div>
+          <textarea id="server-config" placeholder="Paste your Firebase web config JSON here"></textarea>
+          <div class="row">
+            <button id="create-server" type="button">Create server</button>
+            <button id="copy-invite" class="hidden" type="button">Copy invite code</button>
+          </div>
+          <p class="hint" id="server-status">
+            Needs a Firebase project with Firestore enabled and
+            <code>templates/server.rules</code> deployed. See docs/SERVERS.md.
+          </p>
+        </div>
+      </section>
+
       <!-- Settings drawer -->
       <section id="settings" class="settings hidden">
         <div class="setting">
@@ -140,12 +171,29 @@
       </section>
 
       <div class="body">
+        <nav class="rail">
+          <button id="rail-dms" class="rail-btn active" type="button" title="Direct messages">DM</button>
+          <div id="rail-servers"></div>
+          <button id="rail-add" class="rail-btn add" type="button" title="Add a server">+</button>
+        </nav>
+
         <aside class="sidebar">
-          <div class="sidebar-head">Conversations</div>
-          <ul id="thread-list" class="thread-list"></ul>
-          <p id="thread-empty" class="sidebar-empty">
-            Add someone by username above to start.
-          </p>
+          <div id="dm-pane">
+            <div class="sidebar-head">Conversations</div>
+            <ul id="thread-list" class="thread-list"></ul>
+            <p id="thread-empty" class="sidebar-empty">
+              Add someone by username above to start.
+            </p>
+          </div>
+
+          <div id="channel-pane" class="hidden">
+            <div class="sidebar-head">
+              <span id="server-name">Server</span>
+            </div>
+            <ul id="channel-list" class="thread-list"></ul>
+            <button id="new-channel" class="linkish hidden" type="button">+ New channel</button>
+            <button id="leave-server" class="linkish" type="button">Leave server</button>
+          </div>
         </aside>
 
         <div class="pane">

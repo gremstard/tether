@@ -1,0 +1,135 @@
+rules_version = '2';
+
+// Tether — security rules for a SERVER project.
+//
+// Deploy this into your own Firebase project when you found a community. It is
+// not the same as the directory project's rules: this file governs one server's
+// channels, messages and membership.
+//
+// There is no Cloud Function anywhere in Tether, so these rules are the only
+// thing standing between your community and anyone who has your invite code.
+// An invite code is not a secret (it is just a Firebase client config, which is
+// public by design) — membership is enforced *here*, by the members/ collection,
+// and nowhere else.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function serverInfo() {
+      return get(/databases/$(database)/documents/serverInfo/main).data;
+    }
+
+    function isFounder() {
+      return signedIn() && serverInfo().founderUid == me();
+    }
+
+    function isMember() {
+      return signedIn() && exists(/databases/$(database)/documents/members/$(me()));
+    }
+
+    function withinImageBudget(field) {
+      return !(field in request.resource.data.keys())
+        || (request.resource.data[field] is string
+            && request.resource.data[field].size() <= 400000);
+    }
+
+    // --- Server identity ----------------------------------------------------
+    match /serverInfo/main {
+
+      // Readable by anyone signed in, not just members: someone holding an
+      // invite has to be able to see the server's name before deciding to join.
+      allow read: if signedIn();
+
+      // Bootstrap. `create` only evaluates when the document does not exist, so
+      // exactly one account can ever claim founder — whoever gets there first,
+      // which in practice is whoever owns the Firebase project.
+      allow create: if signedIn()
+        && request.resource.data.founderUid == me()
+        && withinImageBudget('iconBase64');
+
+      allow update: if isFounder()
+        && request.resource.data.founderUid == resource.data.founderUid
+        && withinImageBudget('iconBase64');
+
+      allow delete: if false;
+    }
+
+    // --- Membership ---------------------------------------------------------
+    match /members/{uid} {
+
+      allow read: if isMember() || (signedIn() && me() == uid);
+
+      // Joining is self-service — possession of the invite code is what gets
+      // you here — but you may only create your *own* membership, and you may
+      // not appoint yourself founder unless you actually are.
+      allow create: if signedIn()
+        && me() == uid
+        && request.resource.data.username is string
+        && (request.resource.data.role == 'member'
+            || (request.resource.data.role == 'founder' && serverInfo().founderUid == me()));
+
+      // Members may edit their own profile fields but never their own role;
+      // the founder may change anything (promoting, renaming).
+      allow update: if isFounder()
+        || (signedIn() && me() == uid && request.resource.data.role == resource.data.role);
+
+      // Leaving, or being removed by the founder.
+      allow delete: if isFounder() || (signedIn() && me() == uid);
+    }
+
+    // --- In-server handles --------------------------------------------------
+    // Same structural uniqueness trick as the directory: the handle is the
+    // document id, and create only succeeds where nothing exists.
+    //
+    // This makes handles unique *within this server*. It cannot verify that the
+    // person is the same @name from the directory — cross-project identity is
+    // not something client-side rules can check. See docs/SERVERS.md.
+    match /usernames/{username} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == me()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && username.matches('^[a-z0-9_]{3,20}$');
+      allow update, delete: if isFounder();
+    }
+
+    // --- Channels -----------------------------------------------------------
+    match /channels/{channelId} {
+
+      allow read: if isMember();
+      allow write: if isFounder() && channelId.matches('^[a-z0-9-]{1,24}$');
+
+      match /messages/{messageId} {
+
+        allow read: if isMember();
+
+        // Channel history is permanent: no acks, no expiry, no sweep. A message
+        // may not be edited, so what people read is what was said.
+        allow create: if isMember()
+          && request.resource.data.senderUid == me()
+          && request.resource.data.content is string
+          && request.resource.data.content.size() > 0
+          && request.resource.data.content.size() <= 4000
+          && request.resource.data.sentAt == request.time;
+
+        allow update: if false;
+
+        // Deleting your own message, or moderation by the founder.
+        allow delete: if isFounder()
+          || (isMember() && resource.data.senderUid == me());
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

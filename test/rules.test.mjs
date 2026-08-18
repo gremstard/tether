@@ -86,6 +86,12 @@ await check('cannot read someone else’s dm list', () =>
 await check('cannot write into someone else’s dm list', () =>
   assertFails(setDoc(doc(mallory, `users/${ALICE}/dms/${MALLORY}`), { username: 'x' })));
 
+await check('own server list is writable', () =>
+  assertSucceeds(setDoc(doc(alice, `users/${ALICE}/servers/some-proj`), { name: 'S' })));
+
+await check('cannot read someone else’s server list', () =>
+  assertFails(getDoc(doc(mallory, `users/${ALICE}/servers/some-proj`))));
+
 // ---------- messages ----------
 const msgs = (db) => collection(db, `dms/${PAIR}/messages`);
 const good = { senderUid: ALICE, content: 'hi', sentAt: serverTimestamp(), pendingFor: [BOB],

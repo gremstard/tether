@@ -23,6 +23,11 @@ import {
 } from './profile.js';
 import { startSweeper, sweepThread, effectiveCutoffDays } from './sweep.js';
 import { createIntakeManager, loadPeers, rememberPeer } from './threads.js';
+import {
+  connect, createChannel, createServer, currentServerUser, forgetServer,
+  joinServer, listChannels, loadServers, postToChannel, readServerInfo,
+  rememberServer, signIntoServer, watchChannel,
+} from './servers.js';
 
 const { pairId, messagesPath, newMessage, toLocalRecord, MESSAGE_TTL_DAYS } = schema;
 
@@ -66,6 +71,23 @@ const ui = {
   threadHeader: el('thread-header'),
   peerName: el('peer-name'),
   peerAvatar: el('peer-avatar'),
+  railDms: el('rail-dms'),
+  railServers: el('rail-servers'),
+  railAdd: el('rail-add'),
+  dmPane: el('dm-pane'),
+  channelPane: el('channel-pane'),
+  channelList: el('channel-list'),
+  serverName: el('server-name'),
+  newChannel: el('new-channel'),
+  leaveServer: el('leave-server'),
+  serverDialog: el('server-dialog'),
+  inviteInput: el('invite-input'),
+  joinBtn: el('join-server'),
+  serverTitle: el('server-title'),
+  serverConfig: el('server-config'),
+  createBtn: el('create-server'),
+  copyInvite: el('copy-invite'),
+  serverStatus: el('server-status'),
   dot: el('status-dot'),
   myUid: el('my-uid'),
 };
@@ -78,6 +100,12 @@ function show(screen) {
 
 const log = (line) => window.tether.log(line);
 
+
+/** An <img> with no src renders as an empty disc; hide it instead. */
+function setAvatar(dataUrl) {
+  ui.peerAvatar.classList.toggle('hidden', !dataUrl);
+  if (dataUrl) ui.peerAvatar.src = dataUrl;
+}
 
 /**
  * Render one local history record, updating in place if it's already on screen
@@ -167,6 +195,7 @@ async function main() {
     ui.myUsername.textContent = profile.username ? `@${profile.username}` : '—';
     if (profile.pfpBase64) ui.avatarPreview.src = profile.pfpBase64;
     ui.cutoffInput.value = MESSAGE_TTL_DAYS;
+    myUsername = profile.username ?? null;
     show('chat');
 
     // Every known conversation gets a listener now, not when it is clicked —
@@ -202,7 +231,28 @@ async function main() {
 
     renderSidebar();
     startSweeping();
-    log(`signed in as ${profile.username ?? user.uid}, ${peers.size} conversation(s)`);
+
+    // Reconnect joined servers. Non-interactive: a server whose sign-in has
+    // lapsed shows in the rail and prompts when clicked, rather than throwing
+    // popup windows at someone who just opened the app.
+    try {
+      for (const entry of await loadServers(db, selfUid)) {
+        const server = await bringUp(entry).catch((err) => {
+          log(`server ${entry.name ?? entry.id}: ${err.message}`);
+          return null;
+        });
+        if (!server) {
+          servers.set(entry.id, {
+            id: entry.id, config: entry.config, name: entry.name ?? entry.id, needsAuth: true,
+          });
+        }
+      }
+      renderRail();
+    } catch (err) {
+      log(`could not load servers: ${err.message}`);
+    }
+
+    log(`signed in as ${profile.username ?? user.uid}, ${peers.size} conversation(s), ${servers.size} server(s)`);
   }
 
   const auth = initAuth(app, {
@@ -232,6 +282,14 @@ async function main() {
       stopSweeper = null;
       intake?.stopAll();
       intake = null;
+      servers.forEach((server) => server.stopChannel?.());
+      servers.clear();
+      activeServer = null;
+      activeChannel = null;
+      myUsername = null;
+      ui.railServers.replaceChildren();
+      ui.channelPane.classList.add('hidden');
+      ui.dmPane.classList.remove('hidden');
       thread = null;
       peers.clear();
       unread.clear();
@@ -366,6 +424,256 @@ async function main() {
     ui.sweepStatus.textContent = `Removed ${total} abandoned message(s).`;
   });
 
+  // --- servers -------------------------------------------------------------
+  //
+  // Each server is a separate Firebase project with its own auth, so "who am I
+  // here" is answered per server, not once globally.
+
+  /** serverId -> { config, name, conn, uid, username, channels, stopChannel } */
+  const servers = new Map();
+  let activeServer = null;
+  let activeChannel = null;
+  let myUsername = null;
+
+  function renderRail() {
+    ui.railServers.replaceChildren();
+    for (const server of servers.values()) {
+      const btn = document.createElement('button');
+      btn.className = `rail-btn${activeServer === server.id ? ' active' : ''}`;
+      btn.type = 'button';
+      btn.title = server.name;
+
+      if (server.info?.iconBase64) {
+        const img = document.createElement('img');
+        img.src = server.info.iconBase64;
+        img.alt = '';
+        btn.appendChild(img);
+      } else {
+        btn.textContent = (server.name ?? '?').slice(0, 2).toUpperCase();
+      }
+
+      btn.addEventListener('click', () => openServer(server.id));
+      ui.railServers.appendChild(btn);
+    }
+    ui.railDms.className = `rail-btn${activeServer ? '' : ' active'}`;
+  }
+
+  function showDms() {
+    activeServer = null;
+    servers.forEach((s) => s.stopChannel?.());
+    ui.dmPane.classList.remove('hidden');
+    ui.channelPane.classList.add('hidden');
+    ui.serverDialog.classList.add('hidden');
+    ui.messages.replaceChildren();
+    ui.threadHeader.classList.add('hidden');
+    ui.composer.classList.remove('hidden');
+    renderRail();
+    if (peerUid) select(peerUid);
+  }
+
+  function renderChannels(server) {
+    ui.channelList.replaceChildren();
+    for (const channel of server.channels ?? []) {
+      const item = document.createElement('li');
+      item.className = channel.id === activeChannel ? 'active' : '';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = `# ${channel.id}`;
+      item.appendChild(name);
+      item.addEventListener('click', () => openChannel(server, channel.id));
+      ui.channelList.appendChild(item);
+    }
+  }
+
+  function renderChannelMessages(messages, server) {
+    ui.messages.replaceChildren();
+    for (const message of messages) {
+      const node = document.createElement('div');
+      node.className = message.senderUid === server.uid ? 'msg mine' : 'msg';
+
+      const who = document.createElement('span');
+      who.className = 'meta';
+      who.textContent = message.username ? `@${message.username}` : message.senderUid;
+      node.appendChild(who);
+
+      const body = document.createElement('span');
+      body.textContent = message.content;
+      node.appendChild(body);
+
+      const when = document.createElement('span');
+      when.className = 'meta';
+      when.textContent = message.sentAt?.toDate
+        ? message.sentAt.toDate().toLocaleTimeString()
+        : 'sending…';
+      node.appendChild(when);
+
+      ui.messages.appendChild(node);
+    }
+    ui.messages.scrollTop = ui.messages.scrollHeight;
+  }
+
+  function openChannel(server, channelId) {
+    server.stopChannel?.();
+    activeChannel = channelId;
+    ui.peerName.textContent = `# ${channelId}`;
+    ui.threadHeader.classList.remove('hidden');
+    setAvatar(server.info?.iconBase64);
+    renderChannels(server);
+
+    server.stopChannel = watchChannel(server.conn.db, channelId, {
+      onMessages: (messages) => renderChannelMessages(messages, server),
+      onError: (err) => log(`channel ${channelId}: ${err.message}`),
+    });
+  }
+
+  async function openServer(serverId) {
+    let server = servers.get(serverId);
+    if (!server) return;
+
+    if (server.needsAuth || !server.conn) {
+      const revived = await bringUp(server, { interactive: true }).catch((err) => {
+        log(`could not sign in to ${server.name}: ${err.message}`);
+        return null;
+      });
+      if (!revived) return;
+      server = revived;
+    }
+
+    activeServer = serverId;
+    ui.dmPane.classList.add('hidden');
+    ui.channelPane.classList.remove('hidden');
+    ui.serverDialog.classList.add('hidden');
+    ui.clearBtn.classList.add('hidden');
+    ui.serverName.textContent = server.name;
+    ui.newChannel.classList.toggle('hidden', server.info?.founderUid !== server.uid);
+    renderRail();
+
+    try {
+      server.channels = await listChannels(server.conn.db);
+      renderChannels(server);
+      if (server.channels.length) openChannel(server, server.channels[0].id);
+      else ui.messages.replaceChildren();
+    } catch (err) {
+      log(`could not load channels: ${err.message}`);
+      ui.messages.replaceChildren();
+    }
+  }
+
+  /**
+   * Bring a server online: connect to its project, establish who we are there
+   * (a separate sign-in), and read its identity.
+   */
+  async function bringUp(entry, { interactive = false } = {}) {
+    const conn = connect(entry.config);
+    let user = await currentServerUser(conn.auth);
+
+    if (!user) {
+      if (!interactive) return null; // don't pop auth windows on launch
+      user = (await signIntoServer(conn.auth)).user;
+    }
+
+    const info = await readServerInfo(conn.db);
+    const server = {
+      id: entry.id ?? entry.config.projectId,
+      config: entry.config,
+      name: info?.name ?? entry.name ?? entry.config.projectId,
+      conn,
+      uid: user.uid,
+      info,
+    };
+    servers.set(server.id, server);
+    renderRail();
+    return server;
+  }
+
+  ui.railDms.addEventListener('click', showDms);
+
+  ui.railAdd.addEventListener('click', () => {
+    ui.serverDialog.classList.toggle('hidden');
+    ui.settings.classList.add('hidden');
+  });
+
+  ui.joinBtn.addEventListener('click', async () => {
+    ui.serverStatus.textContent = 'Decoding invite…';
+    try {
+      const config = await window.tether.invite.decode(ui.inviteInput.value);
+      const server = await bringUp({ config }, { interactive: true });
+      if (!server) throw new Error('sign-in to that server was cancelled');
+
+      const { handleTaken } = await joinServer(server.conn.db, server.uid, myUsername);
+      server.info = await readServerInfo(server.conn.db);
+      server.name = server.info?.name ?? server.id;
+
+      await rememberServer(db, selfUid, config, server.info, server.uid);
+      ui.inviteInput.value = '';
+      ui.serverStatus.textContent = handleTaken
+        ? `Joined ${server.name}, but @${myUsername} was already taken there.`
+        : `Joined ${server.name}.`;
+      await openServer(server.id);
+    } catch (err) {
+      ui.serverStatus.textContent = err.message;
+      log(`join failed: ${err.message}`);
+    }
+  });
+
+  ui.createBtn.addEventListener('click', async () => {
+    ui.serverStatus.textContent = 'Creating…';
+    try {
+      const config = JSON.parse(ui.serverConfig.value);
+      const name = ui.serverTitle.value.trim();
+      if (!name) throw new Error('give the server a name');
+
+      const server = await bringUp({ config, name }, { interactive: true });
+      if (!server) throw new Error('sign-in to that project was cancelled');
+
+      server.info = await createServer(server.conn.db, server.uid, {
+        name,
+        username: myUsername,
+      });
+      server.name = name;
+
+      await rememberServer(db, selfUid, config, server.info, server.uid);
+
+      const code = await window.tether.invite.encode(config);
+      ui.copyInvite.classList.remove('hidden');
+      ui.copyInvite.onclick = () => {
+        navigator.clipboard.writeText(code);
+        ui.serverStatus.textContent = 'Invite code copied.';
+      };
+      ui.serverStatus.textContent = `Created ${name}. Share the invite code to let people in.`;
+      ui.serverConfig.value = '';
+      ui.serverTitle.value = '';
+      await openServer(server.id);
+    } catch (err) {
+      ui.serverStatus.textContent =
+        err instanceof SyntaxError ? 'that config is not valid JSON' : err.message;
+      log(`create failed: ${err.message}`);
+    }
+  });
+
+  ui.newChannel.addEventListener('click', async () => {
+    const server = servers.get(activeServer);
+    if (!server) return;
+    const name = prompt('Channel name');
+    if (!name) return;
+    try {
+      const id = await createChannel(server.conn.db, name);
+      server.channels = await listChannels(server.conn.db);
+      openChannel(server, id);
+    } catch (err) {
+      log(`could not create channel: ${err.message}`);
+    }
+  });
+
+  ui.leaveServer.addEventListener('click', async () => {
+    const server = servers.get(activeServer);
+    if (!server) return;
+    server.stopChannel?.();
+    servers.delete(server.id);
+    await forgetServer(db, selfUid, server.id).catch((err) => log(err.message));
+    showDms();
+  });
+
   // --- threads -------------------------------------------------------------
 
   const labelFor = (uid) => {
@@ -410,7 +718,7 @@ async function main() {
     ui.clearBtn.classList.remove('hidden');
 
     const profile = await getProfile(db, uid).catch(() => null);
-    ui.peerAvatar.src = profile?.pfpBase64 ?? '';
+    setAvatar(profile?.pfpBase64);
 
     await showThread(thread.threadId, selfUid, rendered);
     renderSidebar();
@@ -474,8 +782,26 @@ async function main() {
   ui.composer.addEventListener('submit', async (event) => {
     event.preventDefault();
     const content = ui.input.value.trim();
-    if (!content || !thread) return;
+    if (!content) return;
 
+    // A server channel is open: post there instead of to a DM thread.
+    if (activeServer && activeChannel) {
+      const server = servers.get(activeServer);
+      ui.input.value = '';
+      try {
+        await postToChannel(server.conn.db, activeChannel, {
+          senderUid: server.uid,
+          username: server.members?.[server.uid]?.username ?? myUsername,
+          content,
+        });
+      } catch (err) {
+        log(`post failed: ${err.code ?? ''} ${err.message}`);
+        ui.input.value = content;
+      }
+      return;
+    }
+
+    if (!thread) return;
     ui.input.value = '';
     try {
       await addDoc(collection(db, messagesPath(selfUid, peerUid)), {

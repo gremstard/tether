@@ -89,6 +89,13 @@ service cloud.firestore {
       match /dms/{peerUid} {
         allow read, write: if signedIn() && me() == uid;
       }
+
+      // Which servers this user has joined, and the client config needed to
+      // reach each one. Pointers only — a server's content lives in that
+      // server's own Firebase project, never here.
+      match /servers/{serverId} {
+        allow read, write: if signedIn() && me() == uid;
+      }
     }
 
     // --- DM threads ---------------------------------------------------------

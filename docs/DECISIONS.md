@@ -42,6 +42,18 @@ Sign-in and sign-up are now separate actions. Previously the app signed in and
 created the account if it did not exist, which under a username requirement
 would strand a mistyped password as a new account with no handle.
 
+## 4. Identity is per-project inside servers
+
+Not a choice so much as a constraint the build doc did not anticipate. §3.2
+describes `members/{uid}` restricting access, but a server is a separate Firebase
+project and **Firebase Auth is per-project**, so that uid is not the user's
+directory uid. Unifying them needs custom tokens, which need Cloud Functions,
+which need Blaze.
+
+So members authenticate to each server project separately, and handles are held
+unique per server rather than globally. Details and the trust consequences are in
+[SERVERS.md](SERVERS.md).
+
 ## Consequences for what was already built
 
 - **Delete-on-ack is unchanged**, and remains the primary cleanup path. The
