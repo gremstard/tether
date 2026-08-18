@@ -2,9 +2,12 @@ node_modules/
 renderer/dist/
 dist/
 out/
+release/
 
-# Real Firebase client config. Not actually secret (see README), but kept out of
-# git so a throwaway dev project doesn't get pinned into history.
+# Local override for pointing a dev build at a different Firebase project.
+# The shipped default (config/firebase.config.default.json) IS committed — a
+# downloaded build has to work without the user configuring anything, and a
+# Firebase client config is public by design.
 config/firebase.config.json
 
 *.log

@@ -109,4 +109,10 @@ fs.writeFileSync(path.join(out, 'tray-win.png'), drawMark(32, [235, 238, 242]));
 // App/window icon.
 fs.writeFileSync(path.join(out, 'icon.png'), drawMark(512, [76, 110, 245]));
 
+// Packaging icon. electron-builder derives .icns and .ico from this, and wants
+// at least 512x512 — 1024 keeps macOS crisp at every size it renders.
+const build = path.join(__dirname, '..', 'build');
+fs.mkdirSync(build, { recursive: true });
+fs.writeFileSync(path.join(build, 'icon.png'), drawMark(1024, [76, 110, 245]));
+
 console.log('wrote', fs.readdirSync(out).join(', '));

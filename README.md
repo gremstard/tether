@@ -10,11 +10,20 @@ Phases 0–3: real Firebase Auth with usernames, the real DM data model, rules
 covered by an emulator test suite, local message history, native OS
 notifications, tray residency with start-at-login, multiple conversations that
 all receive in the background, and servers — Discord-style communities, each in
-its own Firebase project.
+its own Firebase project, packaged as installers for macOS and Windows.
 
 Tether runs on the Firebase **Spark** plan permanently — no Cloud Functions, no
 Cloud Storage, no TTL policies. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for
 what that replaces and why.
+
+## Installing
+
+Download a build from [Releases](https://github.com/gremstard/tether/releases),
+or run from source below.
+
+The builds are **unsigned** — macOS will refuse to open the app on first launch
+(right-click → *Open*), and Windows SmartScreen will warn. See
+[`docs/PACKAGING.md`](docs/PACKAGING.md).
 
 ## Running it
 
@@ -98,6 +107,16 @@ is off until you turn it on, in Settings or the tray menu. See
 gitignored — not because it's secret (Firebase client configs are meant to be
 public; security lives in the Firestore rules) but so a dev project doesn't get
 pinned into git history. Copy `config/firebase.config.example.json` to create it.
+
+## Packaging
+
+```bash
+npm run dist:mac
+```
+
+Windows installers are built on a Windows runner by
+[the release workflow](.github/workflows/release.yml) — tag `v*` to cut a
+release. Details in [`docs/PACKAGING.md`](docs/PACKAGING.md).
 
 ## Deploying
 

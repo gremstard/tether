@@ -1,11 +1,8 @@
 {
   "name": "tether",
   "version": "0.1.0",
-  "description": "Federated, self-hosted chat. Phase 0 proof of concept.",
+  "description": "Federated, self-hosted chat. Your community, your backend.",
   "main": "main/index.js",
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
     "build": "esbuild renderer/app.js --bundle --format=iife --platform=browser --outfile=renderer/dist/bundle.js",
     "watch": "npm run build -- --watch",
@@ -17,15 +14,24 @@
     "icons": "node scripts/make-icons.js",
     "test:intake": "firebase emulators:exec --only firestore --project tether-e2e \"node test/intake.test.mjs\"",
     "test:server-rules": "firebase emulators:exec --only firestore --project tether-server-test \"node test/server-rules.test.mjs\"",
-    "test:servers": "firebase emulators:exec --only firestore --project tether-servers-test \"node test/servers.test.mjs\""
+    "test:servers": "firebase emulators:exec --only firestore --project tether-servers-test \"node test/servers.test.mjs\"",
+    "prepackage": "npm run build && node scripts/make-icons.js",
+    "pack": "npm run prepackage && electron-builder --dir",
+    "dist:mac": "npm run prepackage && electron-builder --mac",
+    "dist:win": "npm run prepackage && electron-builder --win"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": {
+    "name": "gremstard",
+    "email": "mustafa.r@hey.com"
+  },
+  "license": "MIT",
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
     "electron": "^43.4.0",
-    "esbuild": "^0.28.2"
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "firebase": "^12.17.1"
   },
   "allowScripts": {
     "electron@43.4.0": true,
@@ -33,8 +39,61 @@
     "@firebase/util@1.15.2": true,
     "protobufjs@7.6.5": true
   },
-  "dependencies": {
-    "firebase": "^12.17.1"
+  "private": true,
+  "homepage": "https://chat-tether.web.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gremstard/tether.git"
   },
-  "private": true
+  "build": {
+    "appId": "com.tether.desktop",
+    "productName": "Tether",
+    "copyright": "Tether contributors",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main/**/*",
+      "renderer/index.html",
+      "renderer/styles.css",
+      "renderer/dist/**/*",
+      "shared/**/*",
+      "assets/**/*",
+      "config/firebase.config.default.json",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Tether"
+    },
+    "linux": {
+      "target": []
+    }
+  }
 }

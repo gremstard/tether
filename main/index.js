@@ -13,7 +13,23 @@ const {
   startedHidden,
 } = require('./tray.js');
 
-const CONFIG_PATH = path.join(__dirname, '..', 'config', 'firebase.config.json');
+const CONFIG_DIR = path.join(__dirname, '..', 'config');
+
+/**
+ * Where the app points itself.
+ *
+ * The shipped default is committed and travels inside the package — a
+ * downloaded build has to reach the directory project without the user
+ * configuring anything. A Firebase client config is public by design (security
+ * lives in the Firestore rules), so there is nothing here to protect.
+ *
+ * A local `firebase.config.json` overrides it, for pointing a dev build at a
+ * different project without touching the default.
+ */
+const CONFIG_PATHS = [
+  path.join(CONFIG_DIR, 'firebase.config.json'),
+  path.join(CONFIG_DIR, 'firebase.config.default.json'),
+];
 
 /**
  * Phase 0 identity. Two hardcoded UIDs; which one *this* machine is comes from
@@ -28,12 +44,15 @@ function resolveIdentity() {
 }
 
 function loadFirebaseConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    throw new Error(`config/firebase.config.json is not valid JSON: ${err.message}`);
+  for (const candidate of CONFIG_PATHS) {
+    try {
+      return JSON.parse(fs.readFileSync(candidate, 'utf8'));
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw new Error(`${path.basename(candidate)} is not valid JSON: ${err.message}`);
+    }
   }
+  return null;
 }
 
 const AUTH_POPUP_HOSTS = new Set(['accounts.google.com', 'apis.google.com']);
