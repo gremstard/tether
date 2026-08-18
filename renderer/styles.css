@@ -103,6 +103,7 @@ body {
   background: var(--panel);
   text-align: center;
 }
+.card .brand { display: block; width: 44px; height: 44px; margin: 0 auto 12px; }
 .card h1 { margin: 0; font-size: 24px; letter-spacing: 0.02em; }
 .card .sub { margin: 4px 0 20px; color: var(--muted); font-size: 13px; }
 .card form { display: flex; flex-direction: column; gap: 8px; }
@@ -127,11 +128,51 @@ body {
 }
 .card .secondary {
   width: 100%;
-  margin-top: 8px;
   background: transparent;
   border: 1px solid var(--line);
   color: var(--text);
 }
+
+/* The primary action and the sign-in/sign-up switch used to sit flush against
+   each other and read as one merged control. Separate them properly. */
+.card .or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.card .or::before,
+.card .or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.card .switch {
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* `.card button` is more specific than `.linkish`, so the switch would
+   otherwise render as a primary button and compete with the real one. */
+.card .linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.card .linkish:hover { color: var(--text); }
+
+.card form button[type='submit'] { margin-top: 4px; }
 .error { color: #ff8787; font-size: 12px; min-height: 16px; margin: 12px 0 0; }
 
 /* --- chat chrome --------------------------------------------------------- */

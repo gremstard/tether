@@ -7,6 +7,7 @@
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://accounts.google.com; frame-src https://*.firebaseapp.com https://accounts.google.com;"
     />
     <title>Tether</title>
+    <link rel="icon" type="image/png" href="../assets/icon.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -23,6 +24,7 @@
     <!-- Signed out. -->
     <div id="auth" class="screen auth hidden">
       <div class="card">
+        <img class="brand" src="../assets/icon.png" alt="" width="44" height="44" />
         <h1>Tether</h1>
         <p class="sub">Quietly always-on.</p>
         <form id="auth-form">
@@ -43,10 +45,13 @@
           />
           <button type="submit" id="auth-submit">Create account</button>
         </form>
-        <button id="auth-toggle" class="linkish" type="button">
-          Already have an account? Sign in
-        </button>
+        <div class="or">or</div>
         <button id="google-btn" class="secondary">Continue with Google</button>
+        <p class="switch">
+          <button id="auth-toggle" class="linkish" type="button">
+            Already have an account? Sign in
+          </button>
+        </p>
         <p id="auth-error" class="error"></p>
       </div>
     </div>

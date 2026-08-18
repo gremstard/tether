@@ -59,13 +59,14 @@ is('user clear empties the thread', (await store.load('bbb222_ccc333')).length, 
 fs.rmSync(dir, { recursive: true, force: true });
 
 // ---------- invites ----------
+// Shaped like a real config, but not one — the codec only cares about structure.
 const cfg = {
-  apiKey: 'AIzaSyDQxxoTUDhh-Wwlpd_bWj6c1MxfFxm9psU',
-  authDomain: 'tether-84195.firebaseapp.com',
-  projectId: 'tether-84195',
-  storageBucket: 'tether-84195.firebasestorage.app',
-  messagingSenderId: '843737797989',
-  appId: '1:843737797989:web:5e363e1c273929a9117d8c',
+  apiKey: 'AIzaSyB1cD3fG7hJ9kL2mN4pQ6rS8tU0vW1xY2z',
+  authDomain: 'example-proj.firebaseapp.com',
+  projectId: 'example-proj',
+  storageBucket: 'example-proj.firebasestorage.app',
+  messagingSenderId: '123456789012',
+  appId: '1:123456789012:web:abc123def456abc789de',
 };
 const code = await encodeInvite(cfg);
 is('invite round-trips every field', await decodeInvite(code), cfg);
