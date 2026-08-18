@@ -276,8 +276,6 @@ async function main() {
     },
     onSignedOut: () => {
       selfUid = null;
-      stopListening?.();
-      stopListening = null;
       stopSweeper?.();
       stopSweeper = null;
       intake?.stopAll();

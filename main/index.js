@@ -83,8 +83,10 @@ function createWindow({ startHidden = false } = {}) {
 
   // Surface renderer-side errors in the terminal; without this a thrown error
   // in the bundle just silently leaves you on a blank screen.
-  mainWindow.webContents.on('console-message', (_event, level, message) => {
-    if (level >= 2) console.error(`[renderer:error] ${message}`);
+  mainWindow.webContents.on('console-message', (event) => {
+    if (event.level === 'error' || event.level === 'warning') {
+      console.error(`[renderer:${event.level}] ${event.message}`);
+    }
   });
   mainWindow.webContents.on('did-finish-load', () => console.log('[tether] renderer loaded'));
   // Hide rather than destroy, so the listener survives the window.
