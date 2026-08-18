@@ -6,9 +6,10 @@ architecture and the full phase plan.
 
 ## Status
 
-Phase 0/1 plus usernames: real Firebase Auth, the real DM data model, rules
-covered by an emulator test suite, local message history, and native OS
-notifications. Servers (communities) and tray residency are not built yet.
+Phases 0–2: real Firebase Auth with usernames, the real DM data model, rules
+covered by an emulator test suite, local message history, native OS
+notifications, and tray residency with start-at-login. Servers (communities) are
+not built yet.
 
 Tether runs on the Firebase **Spark** plan permanently — no Cloud Functions, no
 Cloud Storage, no TTL policies. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for
@@ -58,6 +59,8 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 | `renderer/`         | UI, Firestore listeners, auth                             |
 | `main/store.js`     | Local message history, one JSON file per thread            |
 | `main/invite.js`    | Self-contained server invite codes                        |
+| `main/tray.js`      | Menu-bar / tray presence, start-at-login                   |
+| `scripts/make-icons.js` | Generates the tray and app icons                      |
 | `renderer/sweep.js` | Client-side cleanup of abandoned messages                  |
 | `renderer/profile.js` | Usernames, avatars, image downscaling                   |
 | `shared/schema.js`  | `pairId` / message shape, used by both processes          |
@@ -73,6 +76,13 @@ npm run test:rules
 Runs 25 security-rule cases against the Firestore emulator (needs Java). Since
 there is no trusted server code anywhere, the rules are the only enforcement
 point — they are worth testing properly.
+
+## Background behaviour
+
+Closing the window keeps Tether resident in the menu bar so messages still
+arrive; **Quit Tether** in the tray menu is what actually stops it. Start-at-login
+is off until you turn it on, in Settings or the tray menu. See
+[`docs/BACKGROUND.md`](docs/BACKGROUND.md).
 
 ## Configuration
 
@@ -98,9 +108,8 @@ Live at https://chat-tether.web.app.
 - **Google sign-in is untested.** The popup flow is wired up and the main process
   allows the auth window, but `file://` renderer origins are an awkward fit for
   Firebase's popup flow. Email/password is the safe path for now.
-- Not yet tray-resident; closing the window ends both the listener and the sweep
-  (Phase 2 moves both into the tray process).
-- The sweep only covers threads opened this session, since there is no friends
-  list yet to enumerate them from.
+- The sweep and the listener only cover threads opened this session, since there
+  is no friends list yet to enumerate them from. Until then, a thread must be
+  opened once per run for its messages to notify.
 - Local history grows until you clear it — there is no retention policy on your
   own copy, by design.

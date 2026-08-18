@@ -226,3 +226,5 @@ body {
   background: var(--theirs);
   object-fit: cover;
 }
+
+.setting label.inline { display: inline; margin: 0; color: var(--text); font-size: 13px; }

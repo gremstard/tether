@@ -109,6 +109,18 @@
         </div>
 
         <div class="setting">
+          <label for="login-item">Background</label>
+          <div class="row">
+            <input id="login-item" type="checkbox" />
+            <label for="login-item" class="inline">Start Tether at login</label>
+          </div>
+          <p class="hint">
+            Closing the window keeps Tether running in the menu bar so messages
+            still arrive. Quit from the tray icon to stop it completely.
+          </p>
+        </div>
+
+        <div class="setting">
           <label for="cutoff-input">Delete undelivered messages older than</label>
           <div class="row">
             <input id="cutoff-input" type="number" min="30" step="1" value="30" />

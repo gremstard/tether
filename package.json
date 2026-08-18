@@ -13,7 +13,8 @@
     "start:friend": "npm run build && TETHER_UID=phase0-user-b electron .",
     "test:rules": "firebase emulators:exec --only firestore --project tether-rules-test \"node test/rules.test.mjs\"",
     "test:unit": "node test/unit.test.mjs",
-    "test": "npm run test:unit && npm run test:rules"
+    "test": "npm run test:unit && npm run test:rules",
+    "icons": "node scripts/make-icons.js"
   },
   "keywords": [],
   "author": "",

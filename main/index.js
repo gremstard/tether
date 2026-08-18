@@ -6,6 +6,12 @@ const fs = require('node:fs');
 
 const { MessageStore } = require('./store.js');
 const { encodeInvite, decodeInvite } = require('./invite.js');
+const {
+  createTray,
+  getLaunchAtLogin,
+  setLaunchAtLogin,
+  startedHidden,
+} = require('./tray.js');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'firebase.config.json');
 
@@ -49,13 +55,23 @@ function isAuthPopupUrl(rawUrl) {
 
 let mainWindow = null;
 let store = null;
+let tray = null;
 
-function createWindow() {
+/**
+ * Closing the window hides it; only an explicit Quit ends the process. This is
+ * what makes messages arrive while the app is "closed" — the renderer stays
+ * alive, holding its Firestore listener and running the sweep.
+ */
+let quitting = false;
+
+function createWindow({ startHidden = false } = {}) {
   mainWindow = new BrowserWindow({
     width: 900,
     height: 680,
     title: 'Tether',
     backgroundColor: '#14161a',
+    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    show: !startHidden,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -71,7 +87,17 @@ function createWindow() {
     if (level >= 2) console.error(`[renderer:error] ${message}`);
   });
   mainWindow.webContents.on('did-finish-load', () => console.log('[tether] renderer loaded'));
-  mainWindow.on('closed', () => { mainWindow = null; });
+  // Hide rather than destroy, so the listener survives the window.
+  mainWindow.on('close', (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+    if (process.platform === 'darwin') app.dock?.hide();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 
   // Google sign-in needs a real in-app popup: signInWithPopup opens a window on
   // the Firebase authDomain and postMessages the credential back, so sending it
@@ -90,23 +116,37 @@ ipcMain.handle('tether:bootstrap', () => ({
   ...resolveIdentity(),
 }));
 
+/** Bring the window back from hiding, creating it if it was never made. */
+function showWindow() {
+  if (!mainWindow) {
+    createWindow();
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  if (process.platform === 'darwin') app.dock?.show();
+}
+
 /**
  * Native OS notification, fired from the main process — macOS routes this
  * through UNUserNotificationCenter, Windows through the toast API. No push
  * service involved (§3.4).
  */
-ipcMain.on('tether:notify', (_event, { title, body }) => {
+ipcMain.on('tether:notify', (_event, { title, body, peerUid }) => {
   if (!Notification.isSupported()) {
     console.warn('[tether] native notifications unsupported on this platform');
     return;
   }
   const notification = new Notification({ title, body });
+
+  // Clicking a notification should land on the conversation it came from, not
+  // just raise whatever happened to be on screen.
   notification.on('click', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    showWindow();
+    if (peerUid) mainWindow?.webContents.send('tether:open-thread', peerUid);
   });
+
   notification.show();
 });
 
@@ -131,22 +171,55 @@ ipcMain.handle('tether:invite:encode', (_event, config) => encodeInvite(config))
 
 ipcMain.handle('tether:invite:decode', (_event, code) => decodeInvite(code));
 
+// --- launch at login -------------------------------------------------------
+
+ipcMain.handle('tether:login-item:get', () => getLaunchAtLogin());
+
+ipcMain.handle('tether:login-item:set', (_event, enabled) => {
+  setLaunchAtLogin(Boolean(enabled));
+  tray?.refresh();
+  return getLaunchAtLogin();
+});
+
 ipcMain.on('tether:log', (_event, line) => {
   console.log(`[renderer] ${line}`);
 });
 
 // --- lifecycle -------------------------------------------------------------
 
-app.whenReady().then(() => {
-  if (process.platform === 'darwin') app.setName('Tether');
-  store = new MessageStore(app.getPath('userData'));
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+// A second launch (including the login item firing while the app is already
+// running) must not start a rival process holding its own listener.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', showWindow);
 
-app.on('window-all-closed', () => {
-  // Phase 2 turns this into a tray-resident background process; for now quit.
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.whenReady().then(() => {
+    if (process.platform === 'darwin') app.setName('Tether');
+    store = new MessageStore(app.getPath('userData'));
+
+    const startHidden = startedHidden();
+    createWindow({ startHidden });
+    if (startHidden && process.platform === 'darwin') app.dock?.hide();
+
+    tray = createTray({
+      onShow: showWindow,
+      onQuit: () => {
+        quitting = true;
+        app.quit();
+      },
+      getLaunchAtLogin,
+      setLaunchAtLogin,
+    });
+
+    app.on('activate', showWindow);
+  });
+
+  app.on('before-quit', () => {
+    quitting = true;
+  });
+
+  // Deliberately empty: the process outliving its windows is the whole point of
+  // a tray-resident app. Quitting happens only through the tray's Quit item.
+  app.on('window-all-closed', () => {});
+}

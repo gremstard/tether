@@ -59,6 +59,7 @@ const ui = {
   cutoffInput: el('cutoff-input'),
   sweepNow: el('sweep-now'),
   sweepStatus: el('sweep-status'),
+  loginItem: el('login-item'),
   dot: el('status-dot'),
   myUid: el('my-uid'),
 };
@@ -112,7 +113,7 @@ function renderRecord(record, selfUid, rendered) {
  * written to local history *before* it is acked, because acking is what lets the
  * server delete it. Ack first and a crash in between loses the message for good.
  */
-async function openThread(db, selfUid, peerUid) {
+async function openThread(db, selfUid, peerUid, peerLabel = peerUid) {
   stopListening?.();
   ui.messages.replaceChildren();
   ui.dot.classList.remove('live');
@@ -163,7 +164,9 @@ async function openThread(db, selfUid, peerUid) {
           continue;
         }
 
-        if (!priming) window.tether.notify('Tether', data.content);
+        if (!priming) {
+          window.tether.notify(peerLabel, data.content, peerUid);
+        }
 
         if (data.pendingFor?.includes(selfUid)) {
           updateDoc(change.doc.ref, { pendingFor: arrayRemove(selfUid) }).catch((err) =>
@@ -180,7 +183,7 @@ async function openThread(db, selfUid, peerUid) {
     }
   );
 
-  return { messages, threadId, rendered };
+  return { messages, threadId, rendered, peerUid, peerLabel };
 }
 
 async function main() {
@@ -352,6 +355,16 @@ async function main() {
     }
   });
 
+  window.tether.loginItem.get().then((enabled) => {
+    ui.loginItem.checked = enabled;
+  });
+
+  ui.loginItem.addEventListener('change', async () => {
+    const applied = await window.tether.loginItem.set(ui.loginItem.checked);
+    ui.loginItem.checked = applied;
+    log(`start at login: ${applied}`);
+  });
+
   ui.sweepNow.addEventListener('click', async () => {
     if (!selfUid) return;
     const days = cutoffDays();
@@ -375,6 +388,18 @@ async function main() {
 
   // --- threads -------------------------------------------------------------
 
+  /** uid -> handle, so a thread reopened from a notification keeps its name. */
+  const peerLabels = new Map();
+
+  async function open(uid, label) {
+    peerUid = uid;
+    openPeers.add(uid);
+    peerLabels.set(uid, label);
+    thread = await openThread(db, selfUid, uid, label);
+    ui.clearBtn.classList.remove('hidden');
+    ui.input.focus();
+  }
+
   ui.peerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const handle = ui.peerInput.value.trim();
@@ -391,15 +416,20 @@ async function main() {
         log('cannot open a thread with yourself');
         return;
       }
-
-      peerUid = uid;
-      openPeers.add(uid);
-      thread = await openThread(db, selfUid, peerUid);
-      ui.clearBtn.classList.remove('hidden');
-      ui.input.focus();
+      await open(uid, `@${handle.trim().toLowerCase()}`);
     } catch (err) {
       log(`could not open thread: ${err.message}`);
       ui.sweepStatus.textContent = err.message;
+    }
+  });
+
+  // Clicking a notification opens the conversation it came from.
+  window.tether.onOpenThread(async (uid) => {
+    if (!selfUid || thread?.peerUid === uid) return;
+    try {
+      await open(uid, peerLabels.get(uid) ?? uid);
+    } catch (err) {
+      log(`could not open thread from notification: ${err.message}`);
     }
   });
 
