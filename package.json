@@ -17,8 +17,8 @@
     "test:servers": "firebase emulators:exec --only firestore --project tether-servers-test \"node test/servers.test.mjs\"",
     "prepackage": "npm run build && node scripts/make-icons.js",
     "pack": "npm run prepackage && electron-builder --dir",
-    "dist:mac": "npm run prepackage && electron-builder --mac",
-    "dist:win": "npm run prepackage && electron-builder --win"
+    "dist:mac": "npm run prepackage && electron-builder --mac --publish never",
+    "dist:win": "npm run prepackage && electron-builder --win --publish never"
   },
   "keywords": [],
   "author": {
