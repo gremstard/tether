@@ -74,7 +74,8 @@
           ]
         }
       ],
-      "identity": null
+      "identity": null,
+      "artifactName": "Tether-mac-${arch}.${ext}"
     },
     "win": {
       "target": [
@@ -84,7 +85,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "Tether-win-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
