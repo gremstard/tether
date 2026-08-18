@@ -73,6 +73,19 @@ await check('oversized base64 pfp rejected', () =>
 await check('reasonable base64 pfp accepted', () =>
   assertSucceeds(setDoc(doc(alice, 'users/' + ALICE), { pfpBase64: 'x'.repeat(50000) })));
 
+// ---------- dm pointers ----------
+await check('own dm list is writable', () =>
+  assertSucceeds(setDoc(doc(alice, `users/${ALICE}/dms/${BOB}`), { username: 'bobby' })));
+
+await check('own dm list is readable', () =>
+  assertSucceeds(getDoc(doc(alice, `users/${ALICE}/dms/${BOB}`))));
+
+await check('cannot read someone else’s dm list', () =>
+  assertFails(getDoc(doc(mallory, `users/${ALICE}/dms/${BOB}`))));
+
+await check('cannot write into someone else’s dm list', () =>
+  assertFails(setDoc(doc(mallory, `users/${ALICE}/dms/${MALLORY}`), { username: 'x' })));
+
 // ---------- messages ----------
 const msgs = (db) => collection(db, `dms/${PAIR}/messages`);
 const good = { senderUid: ALICE, content: 'hi', sentAt: serverTimestamp(), pendingFor: [BOB],

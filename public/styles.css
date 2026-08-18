@@ -65,3 +65,6 @@ h1 { margin: 0; font-size: 44px; letter-spacing: 0.01em; }
 .grid p { margin: 0; color: var(--muted); font-size: 15px; }
 
 footer { margin-top: 64px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.note a, footer a { color: var(--muted); text-decoration: underline; }
+.note a:hover, footer a:hover { color: var(--text); }

@@ -22,6 +22,7 @@ import {
   saveAvatar,
 } from './profile.js';
 import { startSweeper, sweepThread, effectiveCutoffDays } from './sweep.js';
+import { createIntakeManager, loadPeers, rememberPeer } from './threads.js';
 
 const { pairId, messagesPath, newMessage, toLocalRecord, MESSAGE_TTL_DAYS } = schema;
 
@@ -60,6 +61,11 @@ const ui = {
   sweepNow: el('sweep-now'),
   sweepStatus: el('sweep-status'),
   loginItem: el('login-item'),
+  threadList: el('thread-list'),
+  threadEmpty: el('thread-empty'),
+  threadHeader: el('thread-header'),
+  peerName: el('peer-name'),
+  peerAvatar: el('peer-avatar'),
   dot: el('status-dot'),
   myUid: el('my-uid'),
 };
@@ -72,8 +78,6 @@ function show(screen) {
 
 const log = (line) => window.tether.log(line);
 
-/** Teardown for the active thread listener, so switching peers doesn't stack them. */
-let stopListening = null;
 
 /**
  * Render one local history record, updating in place if it's already on screen
@@ -106,84 +110,16 @@ function renderRecord(record, selfUid, rendered) {
 }
 
 /**
- * Open a thread: render what we already have on disk, then listen for anything
- * new.
- *
- * The ordering inside the listener is the important part. A received message is
- * written to local history *before* it is acked, because acking is what lets the
- * server delete it. Ack first and a crash in between loses the message for good.
+ * Show a conversation. Reads local history only — intake has already written
+ * anything that arrived, so displaying a thread never touches Firestore and
+ * switching between threads costs nothing.
  */
-async function openThread(db, selfUid, peerUid, peerLabel = peerUid) {
-  stopListening?.();
+async function showThread(threadId, selfUid, rendered) {
   ui.messages.replaceChildren();
-  ui.dot.classList.remove('live');
-
-  const threadId = pairId(selfUid, peerUid);
-  const messages = collection(db, messagesPath(selfUid, peerUid));
-
-  /** docId -> rendered node. */
-  const rendered = new Map();
-
-  // Local history is what the user sees; Firestore only ever adds to it.
+  rendered.clear();
   for (const record of await window.tether.store.load(threadId)) {
     renderRecord(record, selfUid, rendered);
   }
-
-  // The first snapshot is backlog, not news — notifying on it would fire a
-  // toast per undelivered message every time the app starts.
-  let priming = true;
-
-  stopListening = onSnapshot(
-    query(messages, orderBy('sentAt', 'asc')),
-    async (snapshot) => {
-      ui.dot.classList.add('live');
-
-      for (const change of snapshot.docChanges()) {
-        // Server-side removal is just cleanup finishing. Our copy stays.
-        if (change.type === 'removed') continue;
-
-        const data = change.doc.data();
-        const record = toLocalRecord(change.doc.id, data);
-
-        try {
-          await window.tether.store.append(threadId, record);
-        } catch (err) {
-          // Never ack what we failed to save — the server would delete it.
-          log(`could not save message locally, not acking: ${err.message}`);
-          continue;
-        }
-
-        renderRecord(record, selfUid, rendered);
-
-        if (data.senderUid === selfUid) {
-          // Our own message, now safely in local history. Once the recipient
-          // has acked, the server copy has done its job.
-          if (data.pendingFor?.length === 0) {
-            deleteDoc(change.doc.ref).catch((err) => log(`cleanup failed: ${err.code}`));
-          }
-          continue;
-        }
-
-        if (!priming) {
-          window.tether.notify(peerLabel, data.content, peerUid);
-        }
-
-        if (data.pendingFor?.includes(selfUid)) {
-          updateDoc(change.doc.ref, { pendingFor: arrayRemove(selfUid) }).catch((err) =>
-            log(`ack failed: ${err.code}`)
-          );
-        }
-      }
-
-      priming = false;
-    },
-    (err) => {
-      ui.dot.classList.remove('live');
-      log(`listener error: ${err.code} — ${err.message}`);
-    }
-  );
-
-  return { messages, threadId, rendered, peerUid, peerLabel };
 }
 
 async function main() {
@@ -203,15 +139,20 @@ async function main() {
   let thread = null;
   let signingUp = true;
   let stopSweeper = null;
+  let intake = null;
 
-  /** Peers with an open thread this session — what the sweeper walks. */
-  const openPeers = new Set();
+  /** peerUid -> { uid, username } for every known conversation. */
+  const peers = new Map();
+  /** peerUid -> unread count since it was last displayed. */
+  const unread = new Map();
+  /** docId -> node for the thread currently on screen. */
+  const rendered = new Map();
 
   const cutoffDays = () => effectiveCutoffDays(ui.cutoffInput.value);
 
   function startSweeping() {
     stopSweeper?.();
-    stopSweeper = startSweeper(db, selfUid, () => [...openPeers], {
+    stopSweeper = startSweeper(db, selfUid, () => [...peers.keys()], {
       cutoffDays,
       onSwept: (peer, removed, err) => {
         if (err) log(`sweep failed for ${peer}: ${err.message}`);
@@ -227,8 +168,41 @@ async function main() {
     if (profile.pfpBase64) ui.avatarPreview.src = profile.pfpBase64;
     ui.cutoffInput.value = MESSAGE_TTL_DAYS;
     show('chat');
+
+    // Every known conversation gets a listener now, not when it is clicked —
+    // otherwise a message only notifies if you happened to open that thread
+    // first, which defeats running in the background at all.
+    intake = createIntakeManager(db, selfUid, {
+      onMessage: (peer, record, { priming }) => {
+        if (peer.uid === peerUid) {
+          renderRecord(record, selfUid, rendered);
+          return;
+        }
+        // Not on screen: count it, unless it is startup backlog we have
+        // already read.
+        if (!priming && record.senderUid !== selfUid) {
+          unread.set(peer.uid, (unread.get(peer.uid) ?? 0) + 1);
+          renderSidebar();
+        }
+      },
+      notify: (peer, record) => {
+        window.tether.notify(labelFor(peer.uid), record.content, peer.uid);
+      },
+      onError: (peer, err) => log(`thread ${labelFor(peer.uid)}: ${err.message}`),
+    });
+
+    try {
+      for (const peer of await loadPeers(db, selfUid)) {
+        peers.set(peer.uid, peer);
+        intake.add(peer);
+      }
+    } catch (err) {
+      log(`could not load conversations: ${err.message}`);
+    }
+
+    renderSidebar();
     startSweeping();
-    log(`signed in as ${profile.username ?? user.uid}`);
+    log(`signed in as ${profile.username ?? user.uid}, ${peers.size} conversation(s)`);
   }
 
   const auth = initAuth(app, {
@@ -256,8 +230,14 @@ async function main() {
       stopListening = null;
       stopSweeper?.();
       stopSweeper = null;
+      intake?.stopAll();
+      intake = null;
       thread = null;
-      openPeers.clear();
+      peers.clear();
+      unread.clear();
+      rendered.clear();
+      ui.threadList.replaceChildren();
+      ui.threadHeader.classList.add('hidden');
       ui.messages.replaceChildren();
       ui.clearBtn.classList.add('hidden');
       ui.settings.classList.add('hidden');
@@ -376,7 +356,7 @@ async function main() {
       return;
     }
     let total = 0;
-    for (const peer of openPeers) {
+    for (const peer of peers.keys()) {
       try {
         total += await sweepThread(db, selfUid, peer, { cutoffDays: days });
       } catch (err) {
@@ -388,16 +368,64 @@ async function main() {
 
   // --- threads -------------------------------------------------------------
 
-  /** uid -> handle, so a thread reopened from a notification keeps its name. */
-  const peerLabels = new Map();
+  const labelFor = (uid) => {
+    const peer = peers.get(uid);
+    return peer?.username ? `@${peer.username}` : uid;
+  };
 
-  async function open(uid, label) {
+  function renderSidebar() {
+    ui.threadList.replaceChildren();
+    ui.threadEmpty.classList.toggle('hidden', peers.size > 0);
+
+    for (const peer of peers.values()) {
+      const item = document.createElement('li');
+      item.className = peer.uid === peerUid ? 'active' : '';
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = labelFor(peer.uid);
+      item.appendChild(name);
+
+      const count = unread.get(peer.uid) ?? 0;
+      if (count > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'unread';
+        badge.textContent = count > 99 ? '99+' : String(count);
+        item.appendChild(badge);
+      }
+
+      item.addEventListener('click', () => select(peer.uid));
+      ui.threadList.appendChild(item);
+    }
+  }
+
+  /** Display a conversation, marking it read. */
+  async function select(uid) {
     peerUid = uid;
-    openPeers.add(uid);
-    peerLabels.set(uid, label);
-    thread = await openThread(db, selfUid, uid, label);
+    unread.set(uid, 0);
+    thread = { threadId: pairId(selfUid, uid), peerUid: uid };
+
+    ui.threadHeader.classList.remove('hidden');
+    ui.peerName.textContent = labelFor(uid);
     ui.clearBtn.classList.remove('hidden');
+
+    const profile = await getProfile(db, uid).catch(() => null);
+    ui.peerAvatar.src = profile?.pfpBase64 ?? '';
+
+    await showThread(thread.threadId, selfUid, rendered);
+    renderSidebar();
     ui.input.focus();
+  }
+
+  /** Add a conversation: remember it, start its listener, show it. */
+  async function addPeer(uid, username, { show = true } = {}) {
+    if (!peers.has(uid)) {
+      peers.set(uid, { uid, username });
+      await rememberPeer(db, selfUid, uid, username);
+    }
+    intake?.add(peers.get(uid));
+    renderSidebar();
+    if (show) await select(uid);
   }
 
   ui.peerForm.addEventListener('submit', async (event) => {
@@ -416,7 +444,8 @@ async function main() {
         log('cannot open a thread with yourself');
         return;
       }
-      await open(uid, `@${handle.trim().toLowerCase()}`);
+      await addPeer(uid, handle.trim().toLowerCase());
+      ui.peerInput.value = '';
     } catch (err) {
       log(`could not open thread: ${err.message}`);
       ui.sweepStatus.textContent = err.message;
@@ -427,7 +456,7 @@ async function main() {
   window.tether.onOpenThread(async (uid) => {
     if (!selfUid || thread?.peerUid === uid) return;
     try {
-      await open(uid, peerLabels.get(uid) ?? uid);
+      await select(uid);
     } catch (err) {
       log(`could not open thread from notification: ${err.message}`);
     }
@@ -437,7 +466,7 @@ async function main() {
   ui.clearBtn.addEventListener('click', async () => {
     if (!thread) return;
     await window.tether.store.clear(thread.threadId);
-    thread.rendered.clear();
+    rendered.clear();
     ui.messages.replaceChildren();
     log('cleared local history for this thread');
   });
@@ -449,7 +478,7 @@ async function main() {
 
     ui.input.value = '';
     try {
-      await addDoc(thread.messages, {
+      await addDoc(collection(db, messagesPath(selfUid, peerUid)), {
         ...newMessage({ senderUid: selfUid, recipientUid: peerUid, content }),
         sentAt: serverTimestamp(),
       });

@@ -82,6 +82,13 @@ service cloud.firestore {
         && withinImageBudget('pfpBase64');
 
       allow delete: if signedIn() && me() == uid;
+
+      // Which conversations this user has. Pointers only — never content.
+      // This is what lets the client re-open every thread on launch and hold a
+      // listener on each, instead of only the ones opened by hand this session.
+      match /dms/{peerUid} {
+        allow read, write: if signedIn() && me() == uid;
+      }
     }
 
     // --- DM threads ---------------------------------------------------------

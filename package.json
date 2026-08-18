@@ -13,8 +13,9 @@
     "start:friend": "npm run build && TETHER_UID=phase0-user-b electron .",
     "test:rules": "firebase emulators:exec --only firestore --project tether-rules-test \"node test/rules.test.mjs\"",
     "test:unit": "node test/unit.test.mjs",
-    "test": "npm run test:unit && npm run test:rules",
-    "icons": "node scripts/make-icons.js"
+    "test": "npm run test:unit && npm run test:rules && npm run test:intake",
+    "icons": "node scripts/make-icons.js",
+    "test:intake": "firebase emulators:exec --only firestore --project tether-e2e \"node test/intake.test.mjs\""
   },
   "keywords": [],
   "author": "",

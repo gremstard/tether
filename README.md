@@ -6,10 +6,10 @@ architecture and the full phase plan.
 
 ## Status
 
-Phases 0–2: real Firebase Auth with usernames, the real DM data model, rules
+Phases 0–3: real Firebase Auth with usernames, the real DM data model, rules
 covered by an emulator test suite, local message history, native OS
-notifications, and tray residency with start-at-login. Servers (communities) are
-not built yet.
+notifications, tray residency with start-at-login, and multiple conversations
+that all receive in the background. Servers (communities) are not built yet.
 
 Tether runs on the Firebase **Spark** plan permanently — no Cloud Functions, no
 Cloud Storage, no TTL policies. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for
@@ -28,7 +28,10 @@ Sign up with a username, email and password, or use Google — Google sign-in ad
 a short step to claim a username, since the OAuth popup alone doesn't give you
 one. Handles are unique, immutable, and 3–20 characters of `a-z`, `0-9`, `_`.
 
-To talk to someone, type their username and hit Open. It resolves to their UID
+To talk to someone, type their username and hit Open. They appear in the
+conversation list on the left and stay there across restarts — every
+conversation receives messages in the background, not just the one on screen.
+It resolves to their UID
 through the `usernames/` index, and both sides land on the same thread because
 the thread id is just the two UIDs sorted and joined.
 
@@ -62,6 +65,7 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 | `main/tray.js`      | Menu-bar / tray presence, start-at-login                   |
 | `scripts/make-icons.js` | Generates the tray and app icons                      |
 | `renderer/sweep.js` | Client-side cleanup of abandoned messages                  |
+| `renderer/threads.js` | Per-conversation intake and the DM list                 |
 | `renderer/profile.js` | Usernames, avatars, image downscaling                   |
 | `shared/schema.js`  | `pairId` / message shape, used by both processes          |
 | `public/`           | Landing page deployed to Firebase Hosting                 |
@@ -73,7 +77,8 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 npm run test:rules
 ```
 
-Runs 25 security-rule cases against the Firestore emulator (needs Java). Since
+Runs unit tests, 29 security-rule cases, and an end-to-end intake test against
+the Firestore emulator (needs Java). Since
 there is no trusted server code anywhere, the rules are the only enforcement
 point — they are worth testing properly.
 
@@ -108,8 +113,6 @@ Live at https://chat-tether.web.app.
 - **Google sign-in is untested.** The popup flow is wired up and the main process
   allows the auth window, but `file://` renderer origins are an awkward fit for
   Firebase's popup flow. Email/password is the safe path for now.
-- The sweep and the listener only cover threads opened this session, since there
-  is no friends list yet to enumerate them from. Until then, a thread must be
-  opened once per run for its messages to notify.
+- No group DMs, and no server (community) support yet.
 - Local history grows until you clear it — there is no retention policy on your
   own copy, by design.

@@ -269,3 +269,66 @@ body {
 }
 
 .setting label.inline { display: inline; margin: 0; color: var(--text); font-size: 13px; }
+
+/* --- conversation list --------------------------------------------------- */
+
+.body { flex: 1; display: flex; min-height: 0; }
+
+.sidebar {
+  width: 210px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.sidebar-head {
+  padding: 12px 14px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.sidebar-empty { padding: 0 14px; color: var(--muted); font-size: 12px; }
+
+.thread-list { list-style: none; margin: 0; padding: 0 8px 8px; }
+.thread-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.thread-list li:hover { background: var(--theirs); }
+.thread-list li.active { background: var(--mine); color: #fff; }
+.thread-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Unread marker — a count, so a burst while you were away is visible. */
+.thread-list .unread {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #d64545;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.thread-list li.active .unread { background: rgba(255, 255, 255, 0.35); }
+
+.pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.thread-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.avatar.sm { width: 26px; height: 26px; }

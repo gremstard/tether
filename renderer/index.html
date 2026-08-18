@@ -139,12 +139,27 @@
         </div>
       </section>
 
-      <main id="messages" class="messages"></main>
+      <div class="body">
+        <aside class="sidebar">
+          <div class="sidebar-head">Conversations</div>
+          <ul id="thread-list" class="thread-list"></ul>
+          <p id="thread-empty" class="sidebar-empty">
+            Add someone by username above to start.
+          </p>
+        </aside>
 
-      <form id="composer" class="composer">
-        <input id="input" type="text" placeholder="Message" autocomplete="off" />
-        <button type="submit">Send</button>
-      </form>
+        <div class="pane">
+          <div id="thread-header" class="thread-header hidden">
+            <img id="peer-avatar" class="avatar sm" alt="" />
+            <strong id="peer-name">—</strong>
+          </div>
+          <main id="messages" class="messages"></main>
+          <form id="composer" class="composer">
+            <input id="input" type="text" placeholder="Message" autocomplete="off" />
+            <button type="submit">Send</button>
+          </form>
+        </div>
+      </div>
     </div>
 
     <script src="dist/bundle.js"></script>
