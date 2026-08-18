@@ -15,7 +15,7 @@ import {
 import schema from '../shared/schema.js';
 import { initAuth, emailSignIn, googleSignIn, signOut } from './auth.js';
 
-const { messagesPath, newMessage } = schema;
+const { pairId, messagesPath, newMessage, toLocalRecord } = schema;
 
 const el = (id) => document.getElementById(id);
 const ui = {
@@ -34,6 +34,7 @@ const ui = {
   peerInput: el('peer-input'),
   peerForm: el('peer-form'),
   signOutBtn: el('sign-out'),
+  clearBtn: el('clear-btn'),
   dot: el('status-dot'),
   myUid: el('my-uid'),
 };
@@ -49,73 +50,97 @@ const log = (line) => window.tether.log(line);
 /** Teardown for the active thread listener, so switching peers doesn't stack them. */
 let stopListening = null;
 
-function renderMessage(data, selfUid) {
-  const node = document.createElement('div');
-  node.className = data.senderUid === selfUid ? 'msg mine' : 'msg';
+/**
+ * Render one local history record, updating in place if it's already on screen
+ * (a locally-written message is seen once provisionally, then again once the
+ * server timestamp resolves).
+ */
+function renderRecord(record, selfUid, rendered) {
+  const existing = rendered.get(record.id);
+  const node = existing ?? document.createElement('div');
+
+  node.className = record.senderUid === selfUid ? 'msg mine' : 'msg';
+  node.replaceChildren();
 
   const body = document.createElement('span');
-  body.textContent = data.content;
+  body.textContent = record.content;
   node.appendChild(body);
 
   const meta = document.createElement('span');
   meta.className = 'meta';
-  // sentAt is null for a beat on locally-written docs until the server stamps it.
-  meta.textContent = data.sentAt?.toDate
-    ? data.sentAt.toDate().toLocaleTimeString()
+  meta.textContent = record.sentAt
+    ? new Date(record.sentAt).toLocaleTimeString()
     : 'sending…';
   node.appendChild(meta);
 
-  ui.messages.appendChild(node);
+  if (!existing) {
+    ui.messages.appendChild(node);
+    rendered.set(record.id, node);
+  }
   ui.messages.scrollTop = ui.messages.scrollHeight;
-  return node;
 }
 
-function openThread(db, selfUid, peerUid) {
+/**
+ * Open a thread: render what we already have on disk, then listen for anything
+ * new.
+ *
+ * The ordering inside the listener is the important part. A received message is
+ * written to local history *before* it is acked, because acking is what lets the
+ * server delete it. Ack first and a crash in between loses the message for good.
+ */
+async function openThread(db, selfUid, peerUid) {
   stopListening?.();
   ui.messages.replaceChildren();
   ui.dot.classList.remove('live');
 
+  const threadId = pairId(selfUid, peerUid);
   const messages = collection(db, messagesPath(selfUid, peerUid));
 
-  // The first snapshot is backlog, not news — notifying on it would fire a
-  // toast per old message every time the app starts.
-  let priming = true;
-
-  /** docId -> rendered node, so a deleted message can leave the view too. */
+  /** docId -> rendered node. */
   const rendered = new Map();
+
+  // Local history is what the user sees; Firestore only ever adds to it.
+  for (const record of await window.tether.store.load(threadId)) {
+    renderRecord(record, selfUid, rendered);
+  }
+
+  // The first snapshot is backlog, not news — notifying on it would fire a
+  // toast per undelivered message every time the app starts.
+  let priming = true;
 
   stopListening = onSnapshot(
     query(messages, orderBy('sentAt', 'asc')),
-    (snapshot) => {
+    async (snapshot) => {
       ui.dot.classList.add('live');
 
       for (const change of snapshot.docChanges()) {
-        const data = change.doc.data();
+        // Server-side removal is just cleanup finishing. Our copy stays.
+        if (change.type === 'removed') continue;
 
-        if (change.type === 'removed') {
-          rendered.get(change.doc.id)?.remove();
-          rendered.delete(change.doc.id);
+        const data = change.doc.data();
+        const record = toLocalRecord(change.doc.id, data);
+
+        try {
+          await window.tether.store.append(threadId, record);
+        } catch (err) {
+          // Never ack what we failed to save — the server would delete it.
+          log(`could not save message locally, not acking: ${err.message}`);
           continue;
         }
 
-        // Delivered to everyone who was waiting — the message has done its job.
-        // On the free tier this client-side sweep is what keeps threads from
-        // growing forever; the TTL policy is the backstop for the case where
-        // nobody is ever around to run it.
-        if (data.pendingFor?.length === 0 && data.senderUid === selfUid) {
-          deleteDoc(change.doc.ref).catch((err) => log(`cleanup failed: ${err.code}`));
+        renderRecord(record, selfUid, rendered);
+
+        if (data.senderUid === selfUid) {
+          // Our own message, now safely in local history. Once the recipient
+          // has acked, the server copy has done its job.
+          if (data.pendingFor?.length === 0) {
+            deleteDoc(change.doc.ref).catch((err) => log(`cleanup failed: ${err.code}`));
+          }
+          continue;
         }
 
-        if (change.type !== 'added') continue;
-        rendered.set(change.doc.id, renderMessage(data, selfUid));
-
-        if (data.senderUid === selfUid) continue;
-
-        log(`${priming ? 'backlog' : 'new'} message from ${data.senderUid}`);
         if (!priming) window.tether.notify('Tether', data.content);
 
-        // Ack delivery: drop ourselves from pendingFor. Once it empties, the
-        // message is eligible for cleanup (§3.3).
         if (data.pendingFor?.includes(selfUid)) {
           updateDoc(change.doc.ref, { pendingFor: arrayRemove(selfUid) }).catch((err) =>
             log(`ack failed: ${err.code}`)
@@ -131,7 +156,7 @@ function openThread(db, selfUid, peerUid) {
     }
   );
 
-  return messages;
+  return { messages, threadId, rendered };
 }
 
 async function main() {
@@ -148,7 +173,7 @@ async function main() {
 
   let selfUid = null;
   let peerUid = null;
-  let messages = null;
+  let thread = null;
 
   const auth = initAuth(app, {
     onSignedIn: (user) => {
@@ -162,6 +187,9 @@ async function main() {
       selfUid = null;
       stopListening?.();
       stopListening = null;
+      thread = null;
+      ui.messages.replaceChildren();
+      ui.clearBtn.classList.add('hidden');
       show('auth');
     },
   });
@@ -190,7 +218,7 @@ async function main() {
   ui.signOutBtn.addEventListener('click', () => signOut(auth));
 
   // Phase 3 replaces this with a real friend list out of the directory project.
-  ui.peerForm.addEventListener('submit', (event) => {
+  ui.peerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const value = ui.peerInput.value.trim();
     if (!value || !selfUid) return;
@@ -199,18 +227,32 @@ async function main() {
       return;
     }
     peerUid = value;
-    messages = openThread(db, selfUid, peerUid);
-    ui.input.focus();
+    try {
+      thread = await openThread(db, selfUid, peerUid);
+      ui.clearBtn.classList.remove('hidden');
+      ui.input.focus();
+    } catch (err) {
+      log(`could not open thread: ${err.message}`);
+    }
+  });
+
+  // Local history is the user's own copy, so only the user clears it.
+  ui.clearBtn.addEventListener('click', async () => {
+    if (!thread) return;
+    await window.tether.store.clear(thread.threadId);
+    thread.rendered.clear();
+    ui.messages.replaceChildren();
+    log('cleared local history for this thread');
   });
 
   ui.composer.addEventListener('submit', async (event) => {
     event.preventDefault();
     const content = ui.input.value.trim();
-    if (!content || !messages) return;
+    if (!content || !thread) return;
 
     ui.input.value = '';
     try {
-      await addDoc(messages, {
+      await addDoc(thread.messages, {
         ...newMessage({ senderUid: selfUid, recipientUid: peerUid, content }),
         sentAt: serverTimestamp(),
       });

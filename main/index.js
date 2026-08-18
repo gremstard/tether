@@ -4,6 +4,8 @@ const { app, BrowserWindow, Notification, ipcMain, shell } = require('electron')
 const path = require('node:path');
 const fs = require('node:fs');
 
+const { MessageStore } = require('./store.js');
+
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'firebase.config.json');
 
 /**
@@ -45,6 +47,7 @@ function isAuthPopupUrl(rawUrl) {
 }
 
 let mainWindow = null;
+let store = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -106,6 +109,18 @@ ipcMain.on('tether:notify', (_event, { title, body }) => {
   notification.show();
 });
 
+// --- local history ---------------------------------------------------------
+// The renderer never touches the filesystem; it asks main for a thread's
+// history and hands back each message it has received.
+
+ipcMain.handle('tether:store:load', (_event, pairId) => store.load(pairId));
+
+ipcMain.handle('tether:store:append', (_event, pairId, record) =>
+  store.append(pairId, record)
+);
+
+ipcMain.handle('tether:store:clear', (_event, pairId) => store.clear(pairId));
+
 ipcMain.on('tether:log', (_event, line) => {
   console.log(`[renderer] ${line}`);
 });
@@ -114,6 +129,7 @@ ipcMain.on('tether:log', (_event, line) => {
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin') app.setName('Tether');
+  store = new MessageStore(app.getPath('userData'));
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

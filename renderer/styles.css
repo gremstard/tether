@@ -182,3 +182,5 @@ body {
   border-radius: 4px;
   user-select: all;
 }
+
+.uidbar .hint { margin-left: 12px; opacity: 0.75; }

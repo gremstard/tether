@@ -38,4 +38,27 @@ function newMessage({ senderUid, recipientUid, content, now = new Date() }) {
   };
 }
 
-module.exports = { MESSAGE_TTL_DAYS, pairId, messagesPath, newMessage };
+/**
+ * Shape a Firestore message into the record kept in local history.
+ *
+ * Deliberately plain data: it crosses an IPC boundary and gets JSON-serialized
+ * to disk, so no Firestore Timestamp objects survive the trip. `sentAt` becomes
+ * epoch millis, and is provisional until the server stamps the document — a
+ * locally-written message reports null for a beat.
+ */
+function toLocalRecord(id, data, fallbackSentAt = Date.now()) {
+  return {
+    id,
+    senderUid: data.senderUid,
+    content: data.content,
+    sentAt: data.sentAt?.toMillis ? data.sentAt.toMillis() : fallbackSentAt,
+  };
+}
+
+module.exports = {
+  MESSAGE_TTL_DAYS,
+  pairId,
+  messagesPath,
+  newMessage,
+  toLocalRecord,
+};

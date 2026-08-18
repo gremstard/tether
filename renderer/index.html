@@ -50,11 +50,13 @@
           <input id="peer-input" type="text" placeholder="Peer UID" autocomplete="off" />
           <button type="submit">Open</button>
         </form>
+        <button id="clear-btn" class="linkish hidden" type="button">Clear history</button>
         <button id="sign-out" class="linkish" type="button">Sign out</button>
       </header>
 
       <div class="uidbar">
         your UID (share this) <code id="my-uid">—</code>
+        <span class="hint">History is stored on this machine and stays until you clear it.</span>
       </div>
 
       <main id="messages" class="messages"></main>
