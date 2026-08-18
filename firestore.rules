@@ -1,12 +1,11 @@
 rules_version = '2';
 
-// Tether — DM storage rules (build doc §3.3).
+// Tether — directory + DM rules.
 //
-// A DM thread lives at dms/{pairId}, where pairId is the two participants' UIDs
-// sorted and joined with "_". That means the document path itself names exactly
-// who is allowed in, so membership needs no lookup — it is read straight off
-// the path. Firebase Auth UIDs are alphanumeric, so "_" is an unambiguous
-// separator.
+// Tether runs on the Spark (free) plan by design: no Cloud Functions, no native
+// TTL policy, no Cloud Storage. Everything these rules protect is written
+// directly by clients, so the rules are the only enforcement point. They are
+// written to assume the client is hostile.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -19,7 +18,7 @@ service cloud.firestore {
       return request.auth.uid;
     }
 
-    // The two UIDs encoded in the thread id.
+    // The two UIDs encoded in a thread id.
     function members(pairId) {
       return pairId.split('_');
     }
@@ -28,17 +27,66 @@ service cloud.firestore {
       return signedIn() && me() in members(pairId);
     }
 
-    // --- Profiles -----------------------------------------------------------
-    // Minimal now; the full directory schema (§3.1) lands in Phase 3.
-    match /users/{uid} {
+    // Must match SWEEP_MIN_AGE_DAYS in shared/schema.js.
+    function sweepFloor() {
+      return duration.value(30, 'd');
+    }
+
+    // Profile pictures and server icons are base64 in the document itself
+    // rather than Cloud Storage. Firestore's hard limit is 1MiB per document,
+    // so cap the encoded string well below it and leave room for other fields.
+    function withinImageBudget(field) {
+      return !(field in request.resource.data.keys())
+        || (request.resource.data[field] is string
+            && request.resource.data[field].size() <= 400000);
+    }
+
+    // --- Username index -----------------------------------------------------
+    // usernames/{username} -> { uid }. Purely a uniqueness + lookup index.
+    //
+    // Uniqueness is enforced structurally: the username *is* the document id,
+    // and create is only permitted when no document exists at that id. Firestore
+    // evaluates create against a non-existent resource, so a second claim of the
+    // same handle is rejected by the engine, not by a check we could race.
+    match /usernames/{username} {
+
+      // Anyone signed in can resolve a handle to a UID — that is the point.
       allow read: if signedIn();
-      allow write: if signedIn() && me() == uid;
+
+      allow create: if signedIn()
+        && request.resource.data.uid == me()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && username.matches('^[a-z0-9_]{3,20}$');
+
+      // Handles are immutable once claimed. Allowing update would let someone
+      // repoint an existing handle at a different account; allowing delete
+      // would let them free it and let an impersonator re-claim it.
+      allow update, delete: if false;
+    }
+
+    // --- Profiles -----------------------------------------------------------
+    match /users/{uid} {
+
+      allow read: if signedIn();
+
+      // Note: `username` here is a denormalized display copy and is NOT verified
+      // against the index. It cannot be: the profile and the username claim are
+      // written in one atomic batch, and rules `get()` cannot see a document
+      // created in the same commit — verified against the emulator.
+      //
+      // usernames/{username} -> uid stays authoritative, and it is the only
+      // direction that matters: peers are always resolved handle -> uid through
+      // the index, never by trusting a profile's self-reported handle.
+      allow create, update: if signedIn()
+        && me() == uid
+        && withinImageBudget('pfpBase64');
+
+      allow delete: if signedIn() && me() == uid;
     }
 
     // --- DM threads ---------------------------------------------------------
     match /dms/{pairId} {
 
-      // The thread doc itself holds nothing in v1; messages live beneath it.
       allow read: if isParticipant(pairId);
       allow write: if false;
 
@@ -46,34 +94,41 @@ service cloud.firestore {
 
         allow read: if isParticipant(pairId);
 
-        // A sender may only write messages as themselves, and may not list
-        // themselves as pending — they already have the message.
+        // A sender may only write as themselves, may not backdate, and may not
+        // list themselves as pending — they already have the message.
         allow create: if isParticipant(pairId)
           && request.resource.data.senderUid == me()
           && request.resource.data.content is string
           && request.resource.data.content.size() > 0
           && request.resource.data.content.size() <= 4000
           && request.resource.data.sentAt == request.time
-          && request.resource.data.expireAt is timestamp
           && request.resource.data.pendingFor is list
           && request.resource.data.pendingFor.hasOnly(members(pairId))
           && !(me() in request.resource.data.pendingFor);
 
-        // Acking delivery: the recipient removes only themselves from
-        // pendingFor. No other field may change.
+        // The only legal edit is acking: removing yourself from pendingFor.
         allow update: if isParticipant(pairId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingFor'])
           && !(me() in request.resource.data.pendingFor)
           && request.resource.data.pendingFor.hasOnly(resource.data.pendingFor);
 
-        // Once nobody is waiting on it, either participant may clean it up.
-        // The TTL policy on expireAt is the backstop for messages never acked.
+        // Two ways a message may be deleted, and no others:
+        //
+        //  1. Delivered — nobody is waiting on it any more.
+        //  2. Abandoned — someone never collected it, and it is older than the
+        //     sweep floor. This is what replaces a native TTL policy on Spark.
+        //
+        // The age floor is what stops case 2 from becoming an unsend button:
+        // without it, either participant could delete a message the other has
+        // simply not picked up yet.
         allow delete: if isParticipant(pairId)
-          && resource.data.pendingFor.size() == 0;
+          && (
+            resource.data.pendingFor.size() == 0
+            || resource.data.sentAt < request.time - sweepFloor()
+          );
       }
     }
 
-    // Everything else is closed.
     match /{document=**} {
       allow read, write: if false;
     }

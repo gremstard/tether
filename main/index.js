@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const { MessageStore } = require('./store.js');
+const { encodeInvite, decodeInvite } = require('./invite.js');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'firebase.config.json');
 
@@ -120,6 +121,15 @@ ipcMain.handle('tether:store:append', (_event, pairId, record) =>
 );
 
 ipcMain.handle('tether:store:clear', (_event, pairId) => store.clear(pairId));
+
+// --- server invites --------------------------------------------------------
+// Encoding lives in main so the codec can use node's zlib and crypto rather
+// than bundling equivalents into the renderer. There is no Cloud Function
+// behind this: a code is self-contained and resolved entirely on the client.
+
+ipcMain.handle('tether:invite:encode', (_event, config) => encodeInvite(config));
+
+ipcMain.handle('tether:invite:decode', (_event, code) => decodeInvite(code));
 
 ipcMain.on('tether:log', (_event, line) => {
   console.log(`[renderer] ${line}`);

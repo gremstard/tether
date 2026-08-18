@@ -6,9 +6,13 @@ architecture and the full phase plan.
 
 ## Status
 
-Phase 0/1: real Firebase Auth, the real DM data model, real security rules, and
-native OS notifications. Servers (communities), the global directory project,
-and tray residency are not built yet.
+Phase 0/1 plus usernames: real Firebase Auth, the real DM data model, rules
+covered by an emulator test suite, local message history, and native OS
+notifications. Servers (communities) and tray residency are not built yet.
+
+Tether runs on the Firebase **Spark** plan permanently — no Cloud Functions, no
+Cloud Storage, no TTL policies. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for
+what that replaces and why.
 
 ## Running it
 
@@ -19,10 +23,13 @@ npm start
 
 `npm start` bundles the renderer and launches Electron.
 
-You'll be asked to sign in (email/password, or Google). Once in, the header shows
-**your UID** — send that to whoever you want to talk to, paste theirs into the
-peer box, and hit Open. Both sides land on the same thread because the thread id
-is just the two UIDs sorted and joined.
+Sign up with a username, email and password, or use Google — Google sign-in adds
+a short step to claim a username, since the OAuth popup alone doesn't give you
+one. Handles are unique, immutable, and 3–20 characters of `a-z`, `0-9`, `_`.
+
+To talk to someone, type their username and hit Open. It resolves to their UID
+through the `usernames/` index, and both sides land on the same thread because
+the thread id is just the two UIDs sorted and joined.
 
 To test properly you need two accounts. Two machines is the real test; two
 accounts on one machine works for a smoke test.
@@ -50,9 +57,22 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 | `main/`             | Electron main process — window, native notifications, IPC |
 | `renderer/`         | UI, Firestore listeners, auth                             |
 | `main/store.js`     | Local message history, one JSON file per thread            |
+| `main/invite.js`    | Self-contained server invite codes                        |
+| `renderer/sweep.js` | Client-side cleanup of abandoned messages                  |
+| `renderer/profile.js` | Usernames, avatars, image downscaling                   |
 | `shared/schema.js`  | `pairId` / message shape, used by both processes          |
 | `public/`           | Landing page deployed to Firebase Hosting                 |
 | `firestore.rules`   | DM security rules                                          |
+
+## Testing
+
+```bash
+npm run test:rules
+```
+
+Runs 25 security-rule cases against the Firestore emulator (needs Java). Since
+there is no trusted server code anywhere, the rules are the only enforcement
+point — they are worth testing properly.
 
 ## Configuration
 
@@ -75,13 +95,12 @@ Live at https://chat-tether.web.app.
 
 ## Known gaps
 
-- **TTL policy is not enabled.** Firestore TTL requires the Blaze plan; this
-  project is on Spark. Delivered messages are still cleaned up (the sender
-  deletes them once the recipient acks), but a message sent to someone who never
-  comes back will sit there forever until billing is enabled and the policy from
-  `docs/TTL.md` is applied. This only affects the undelivered server copy —
-  delivered messages are already safe in local history.
 - **Google sign-in is untested.** The popup flow is wired up and the main process
   allows the auth window, but `file://` renderer origins are an awkward fit for
   Firebase's popup flow. Email/password is the safe path for now.
-- Not yet tray-resident; closing the window ends the listener (Phase 2).
+- Not yet tray-resident; closing the window ends both the listener and the sweep
+  (Phase 2 moves both into the tray process).
+- The sweep only covers threads opened this session, since there is no friends
+  list yet to enumerate them from.
+- Local history grows until you clear it — there is no retention policy on your
+  own copy, by design.

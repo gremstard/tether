@@ -1,3 +1,9 @@
+> **Note:** this is the original architecture brief, kept as written. Several
+> decisions in it have since been superseded — the Blaze-dependent features
+> (TTL policy, Cloud Storage, Cloud Functions) are all replaced, and friends are
+> added by username rather than UID. See [DECISIONS.md](DECISIONS.md), which
+> takes precedence wherever the two disagree.
+
 # Tether — Build Document
 
 ## 1. What This Is

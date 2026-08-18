@@ -10,12 +10,16 @@
     "build": "esbuild renderer/app.js --bundle --format=iife --platform=browser --outfile=renderer/dist/bundle.js",
     "watch": "npm run build -- --watch",
     "start": "npm run build && electron .",
-    "start:friend": "npm run build && TETHER_UID=phase0-user-b electron ."
+    "start:friend": "npm run build && TETHER_UID=phase0-user-b electron .",
+    "test:rules": "firebase emulators:exec --only firestore --project tether-rules-test \"node test/rules.test.mjs\"",
+    "test:unit": "node test/unit.test.mjs",
+    "test": "npm run test:unit && npm run test:rules"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "electron": "^43.4.0",
     "esbuild": "^0.28.2"
   },

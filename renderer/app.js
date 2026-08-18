@@ -13,9 +13,17 @@ import {
 } from 'firebase/firestore';
 
 import schema from '../shared/schema.js';
-import { initAuth, emailSignIn, googleSignIn, signOut } from './auth.js';
+import { initAuth, emailSignIn, emailSignUp, googleSignIn, signOut } from './auth.js';
+import {
+  claimUsername,
+  downscaleImage,
+  getProfile,
+  lookupUsername,
+  saveAvatar,
+} from './profile.js';
+import { startSweeper, sweepThread, effectiveCutoffDays } from './sweep.js';
 
-const { pairId, messagesPath, newMessage, toLocalRecord } = schema;
+const { pairId, messagesPath, newMessage, toLocalRecord, MESSAGE_TTL_DAYS } = schema;
 
 const el = (id) => document.getElementById(id);
 const ui = {
@@ -35,12 +43,28 @@ const ui = {
   peerForm: el('peer-form'),
   signOutBtn: el('sign-out'),
   clearBtn: el('clear-btn'),
+  username: el('username'),
+  authSubmit: el('auth-submit'),
+  authToggle: el('auth-toggle'),
+  finish: el('finish'),
+  finishForm: el('finish-form'),
+  finishUsername: el('finish-username'),
+  finishError: el('finish-error'),
+  finishSignout: el('finish-signout'),
+  myUsername: el('my-username'),
+  settings: el('settings'),
+  settingsBtn: el('settings-btn'),
+  avatarInput: el('avatar-input'),
+  avatarPreview: el('avatar-preview'),
+  cutoffInput: el('cutoff-input'),
+  sweepNow: el('sweep-now'),
+  sweepStatus: el('sweep-status'),
   dot: el('status-dot'),
   myUid: el('my-uid'),
 };
 
 function show(screen) {
-  for (const name of ['setup', 'auth', 'chat']) {
+  for (const name of ['setup', 'auth', 'finish', 'chat']) {
     ui[name].classList.toggle('hidden', name !== screen);
   }
 }
@@ -174,33 +198,107 @@ async function main() {
   let selfUid = null;
   let peerUid = null;
   let thread = null;
+  let signingUp = true;
+  let stopSweeper = null;
+
+  /** Peers with an open thread this session — what the sweeper walks. */
+  const openPeers = new Set();
+
+  const cutoffDays = () => effectiveCutoffDays(ui.cutoffInput.value);
+
+  function startSweeping() {
+    stopSweeper?.();
+    stopSweeper = startSweeper(db, selfUid, () => [...openPeers], {
+      cutoffDays,
+      onSwept: (peer, removed, err) => {
+        if (err) log(`sweep failed for ${peer}: ${err.message}`);
+        else log(`swept ${removed} abandoned message(s) from thread with ${peer}`);
+      },
+    });
+  }
+
+  async function enterApp(user, profile) {
+    selfUid = user.uid;
+    ui.selfLabel.textContent = profile.username ? `@${profile.username}` : user.email ?? user.uid;
+    ui.myUsername.textContent = profile.username ? `@${profile.username}` : '—';
+    if (profile.pfpBase64) ui.avatarPreview.src = profile.pfpBase64;
+    ui.cutoffInput.value = MESSAGE_TTL_DAYS;
+    show('chat');
+    startSweeping();
+    log(`signed in as ${profile.username ?? user.uid}`);
+  }
 
   const auth = initAuth(app, {
-    onSignedIn: (user) => {
-      selfUid = user.uid;
-      ui.selfLabel.textContent = user.email || user.displayName || user.uid;
-      ui.myUid.textContent = user.uid;
-      show('chat');
-      log(`signed in as ${user.uid}`);
+    onSignedIn: async (user) => {
+      try {
+        const profile = await getProfile(db, user.uid);
+        // A Google sign-in creates an auth user with no profile behind it, so
+        // the username step happens after the popup rather than before it.
+        if (!profile?.username) {
+          selfUid = user.uid;
+          show('finish');
+          ui.finishUsername.focus();
+          return;
+        }
+        await enterApp(user, profile);
+      } catch (err) {
+        log(`could not load profile: ${err.message}`);
+        ui.authError.textContent = err.message;
+        show('auth');
+      }
     },
     onSignedOut: () => {
       selfUid = null;
       stopListening?.();
       stopListening = null;
+      stopSweeper?.();
+      stopSweeper = null;
       thread = null;
+      openPeers.clear();
       ui.messages.replaceChildren();
       ui.clearBtn.classList.add('hidden');
+      ui.settings.classList.add('hidden');
       show('auth');
     },
   });
 
+  // --- sign in / sign up ---------------------------------------------------
+
+  function setAuthMode(isSignUp) {
+    signingUp = isSignUp;
+    ui.username.classList.toggle('hidden', !isSignUp);
+    ui.username.required = isSignUp;
+    ui.authSubmit.textContent = isSignUp ? 'Create account' : 'Sign in';
+    ui.authToggle.textContent = isSignUp
+      ? 'Already have an account? Sign in'
+      : 'Need an account? Sign up';
+    ui.authError.textContent = '';
+  }
+  setAuthMode(true);
+  ui.authToggle.addEventListener('click', () => setAuthMode(!signingUp));
+
   ui.authForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     ui.authError.textContent = '';
+    const email = ui.email.value.trim();
+
     try {
-      await emailSignIn(auth, ui.email.value.trim(), ui.password.value, {
-        createIfMissing: true,
-      });
+      if (!signingUp) {
+        await emailSignIn(auth, email, ui.password.value);
+        return;
+      }
+
+      // Check the handle before creating the account, so an obviously taken
+      // username doesn't leave an orphaned auth user behind.
+      const wanted = ui.username.value;
+      if (await lookupUsername(db, wanted)) {
+        ui.authError.textContent = `"${wanted.trim().toLowerCase()}" is already taken`;
+        return;
+      }
+
+      const credential = await emailSignUp(auth, email, ui.password.value);
+      await claimUsername(db, credential.user.uid, wanted, { email });
+      await enterApp(credential.user, { username: wanted.trim().toLowerCase() });
     } catch (err) {
       ui.authError.textContent = err.message;
     }
@@ -215,24 +313,93 @@ async function main() {
     }
   });
 
+  // --- finish setup (Google) -----------------------------------------------
+
+  ui.finishForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    ui.finishError.textContent = '';
+    try {
+      const username = await claimUsername(db, selfUid, ui.finishUsername.value, {
+        email: auth.currentUser?.email ?? null,
+        displayName: auth.currentUser?.displayName ?? null,
+      });
+      await enterApp(auth.currentUser, { username });
+    } catch (err) {
+      ui.finishError.textContent = err.message;
+    }
+  });
+
+  ui.finishSignout.addEventListener('click', () => signOut(auth));
   ui.signOutBtn.addEventListener('click', () => signOut(auth));
 
-  // Phase 3 replaces this with a real friend list out of the directory project.
-  ui.peerForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const value = ui.peerInput.value.trim();
-    if (!value || !selfUid) return;
-    if (value === selfUid) {
-      log('cannot open a thread with yourself');
+  // --- settings ------------------------------------------------------------
+
+  ui.settingsBtn.addEventListener('click', () =>
+    ui.settings.classList.toggle('hidden')
+  );
+
+  ui.avatarInput.addEventListener('change', async () => {
+    const file = ui.avatarInput.files?.[0];
+    if (!file || !selfUid) return;
+    try {
+      const encoded = await downscaleImage(file);
+      await saveAvatar(db, selfUid, encoded);
+      ui.avatarPreview.src = encoded;
+      log(`avatar saved (${Math.round(encoded.length / 1024)}kb encoded)`);
+    } catch (err) {
+      log(`avatar failed: ${err.message}`);
+      ui.sweepStatus.textContent = err.message;
+    }
+  });
+
+  ui.sweepNow.addEventListener('click', async () => {
+    if (!selfUid) return;
+    const days = cutoffDays();
+    if (Number(ui.cutoffInput.value) < days) {
+      ui.cutoffInput.value = days;
+      ui.sweepStatus.textContent =
+        `The security rules only allow deleting undelivered messages after ${days} days, ` +
+        `so the cutoff was raised to match.`;
       return;
     }
-    peerUid = value;
+    let total = 0;
+    for (const peer of openPeers) {
+      try {
+        total += await sweepThread(db, selfUid, peer, { cutoffDays: days });
+      } catch (err) {
+        log(`sweep failed for ${peer}: ${err.message}`);
+      }
+    }
+    ui.sweepStatus.textContent = `Removed ${total} abandoned message(s).`;
+  });
+
+  // --- threads -------------------------------------------------------------
+
+  ui.peerForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const handle = ui.peerInput.value.trim();
+    if (!handle || !selfUid) return;
+
     try {
+      const uid = await lookupUsername(db, handle);
+      if (!uid) {
+        log(`no user named "${handle}"`);
+        ui.sweepStatus.textContent = `No user named "${handle}".`;
+        return;
+      }
+      if (uid === selfUid) {
+        log('cannot open a thread with yourself');
+        return;
+      }
+
+      peerUid = uid;
+      openPeers.add(uid);
       thread = await openThread(db, selfUid, peerUid);
       ui.clearBtn.classList.remove('hidden');
       ui.input.focus();
     } catch (err) {
       log(`could not open thread: ${err.message}`);
+      ui.sweepStatus.textContent = err.message;
     }
   });
 

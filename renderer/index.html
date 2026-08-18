@@ -26,7 +26,14 @@
         <h1>Tether</h1>
         <p class="sub">Quietly always-on.</p>
         <form id="auth-form">
-          <input id="email" type="email" placeholder="Email" autocomplete="username" required />
+          <input
+            id="username"
+            type="text"
+            placeholder="Username"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <input id="email" type="email" placeholder="Email" autocomplete="email" required />
           <input
             id="password"
             type="password"
@@ -34,10 +41,34 @@
             autocomplete="current-password"
             required
           />
-          <button type="submit">Sign in / Sign up</button>
+          <button type="submit" id="auth-submit">Create account</button>
         </form>
+        <button id="auth-toggle" class="linkish" type="button">
+          Already have an account? Sign in
+        </button>
         <button id="google-btn" class="secondary">Continue with Google</button>
         <p id="auth-error" class="error"></p>
+      </div>
+    </div>
+
+    <!-- Signed in with Google but no username claimed yet. -->
+    <div id="finish" class="screen auth hidden">
+      <div class="card">
+        <h1>Almost there</h1>
+        <p class="sub">Pick a username so people can find you.</p>
+        <form id="finish-form">
+          <input
+            id="finish-username"
+            type="text"
+            placeholder="Username"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          />
+          <button type="submit">Claim it</button>
+        </form>
+        <button id="finish-signout" class="linkish" type="button">Sign out</button>
+        <p id="finish-error" class="error"></p>
       </div>
     </div>
 
@@ -47,17 +78,49 @@
         <span class="dot" id="status-dot"></span>
         <span class="who"><strong id="self-label">—</strong></span>
         <form id="peer-form" class="peer-form">
-          <input id="peer-input" type="text" placeholder="Peer UID" autocomplete="off" />
+          <input
+            id="peer-input"
+            type="text"
+            placeholder="Add by username"
+            autocomplete="off"
+            spellcheck="false"
+          />
           <button type="submit">Open</button>
         </form>
+        <button id="settings-btn" class="linkish" type="button">Settings</button>
         <button id="clear-btn" class="linkish hidden" type="button">Clear history</button>
         <button id="sign-out" class="linkish" type="button">Sign out</button>
       </header>
 
       <div class="uidbar">
-        your UID (share this) <code id="my-uid">—</code>
-        <span class="hint">History is stored on this machine and stays until you clear it.</span>
+        you are <code id="my-username">—</code>
+        <span class="hint">Share your username so people can add you.</span>
       </div>
+
+      <!-- Settings drawer -->
+      <section id="settings" class="settings hidden">
+        <div class="setting">
+          <label for="avatar-input">Profile picture</label>
+          <div class="row">
+            <img id="avatar-preview" class="avatar" alt="" />
+            <input id="avatar-input" type="file" accept="image/*" />
+          </div>
+          <p class="hint">Downscaled to 256×256 and stored in your profile.</p>
+        </div>
+
+        <div class="setting">
+          <label for="cutoff-input">Delete undelivered messages older than</label>
+          <div class="row">
+            <input id="cutoff-input" type="number" min="30" step="1" value="30" />
+            <span>days</span>
+            <button id="sweep-now" type="button">Clear now</button>
+          </div>
+          <p class="hint" id="sweep-status">
+            Runs automatically in the background. Only affects messages nobody ever
+            received — your own history is never touched.
+          </p>
+        </div>
+      </section>
 
       <main id="messages" class="messages"></main>
 

@@ -22,17 +22,17 @@ export function initAuth(app, { onSignedIn, onSignedOut }) {
   return auth;
 }
 
-export async function emailSignIn(auth, email, password, { createIfMissing }) {
-  try {
-    return await signInWithEmailAndPassword(auth, email, password);
-  } catch (err) {
-    const missing =
-      err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential';
-    if (createIfMissing && missing) {
-      return createUserWithEmailAndPassword(auth, email, password);
-    }
-    throw err;
-  }
+export function emailSignIn(auth, email, password) {
+  return signInWithEmailAndPassword(auth, email, password);
+}
+
+/**
+ * Sign-up is explicit rather than "sign in, and create the account if missing".
+ * Signing up now claims a username as a separate step, and silently creating an
+ * account on a mistyped password would strand a user with no handle.
+ */
+export function emailSignUp(auth, email, password) {
+  return createUserWithEmailAndPassword(auth, email, password);
 }
 
 export function googleSignIn(auth) {
