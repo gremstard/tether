@@ -82,6 +82,26 @@ for (const refused of [
 ok('query strings are ignored when resolving',
    resolveWithinRoot(ROOT, '/assets/icon.png?v=2')?.endsWith('icon.png') === true);
 
+// ---------- content security policy ----------
+// Firebase's sign-in popup loads Google's gapi script and relays through an
+// iframe on the auth domain. A CSP that omits those hosts does not fail
+// visibly — it surfaces as a bare "auth/internal-error", which is what broke
+// Google sign-in once already. Guard the specific hosts it needs.
+const html = fs.readFileSync(new URL('../renderer/index.html', import.meta.url), 'utf8');
+const csp = (html.match(/content="([^"]*default-src[^"]*)"/s)?.[1] ?? '').replace(/\s+/g, ' ');
+const directive = (name) => csp.match(new RegExp(`${name} ([^;]*)`))?.[1] ?? '';
+
+ok('CSP was found in index.html', csp.length > 0);
+ok('script-src allows gapi (else Google sign-in fails)',
+   directive('script-src').includes('https://apis.google.com'));
+ok('frame-src allows the auth relay iframe',
+   directive('frame-src').includes('firebaseapp.com'));
+ok('connect-src allows same-origin requests',
+   directive('connect-src').includes("'self'"));
+ok('connect-src allows the identity APIs',
+   directive('connect-src').includes('googleapis.com'));
+ok('default-src is still locked to self', directive('default-src').trim() === "'self'");
+
 // ---------- invites ----------
 // Shaped like a real config, but not one — the codec only cares about structure.
 const cfg = {

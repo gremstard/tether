@@ -4,7 +4,18 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://accounts.google.com; frame-src https://*.firebaseapp.com https://accounts.google.com;"
+      content="
+        default-src 'self';
+        script-src 'self' https://apis.google.com;
+        style-src 'self';
+        img-src 'self' data: https:;
+        font-src 'self';
+        connect-src 'self' https://*.googleapis.com https://*.firebaseio.com
+          wss://*.firebaseio.com https://*.firebaseapp.com https://apis.google.com
+          https://securetoken.googleapis.com https://identitytoolkit.googleapis.com;
+        frame-src https://*.firebaseapp.com https://accounts.google.com
+          https://apis.google.com https://*.web.app;
+      "
     />
     <title>Tether</title>
     <link rel="icon" type="image/png" href="../assets/icon.png" />

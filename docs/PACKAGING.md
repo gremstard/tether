@@ -119,3 +119,17 @@ resolved path, so encoded traversal is refused too.
 
 Electron's default user agent is also stripped of its `Electron/x.y.z` token:
 Google refuses OAuth from user agents it recognises as embedded browsers.
+
+## The CSP has to name Google's auth hosts
+
+Firebase's sign-in popup loads `https://apis.google.com/js/api.js` into the page
+and relays the credential through an iframe on the project's auth domain. A
+strict `script-src 'self'` blocks that script, the loader's `onerror` fires, and
+the SDK reports it as a bare **`auth/internal-error`** — a message that names
+neither CSP nor the blocked host, and which cost two wrong diagnoses before the
+console output was read directly.
+
+`renderer/index.html` therefore allows `https://apis.google.com` in `script-src`
+and the auth domain in `frame-src`. `default-src` stays `'self'`. There are unit
+tests asserting those hosts are present, because tightening the policy back down
+breaks Google sign-in silently rather than loudly.
