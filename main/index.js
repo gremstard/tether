@@ -137,8 +137,23 @@ function createWindow({ startHidden = false } = {}) {
 
 // --- IPC -------------------------------------------------------------------
 
+/**
+ * Emulator targets, when the app is being driven by the end-to-end tests.
+ *
+ * Passed through to the renderer rather than read there, because the renderer
+ * has no environment of its own. Absent in every normal run, so a shipped build
+ * cannot be pointed at a test backend by accident.
+ */
+function emulatorConfig() {
+  const auth = process.env.TETHER_AUTH_EMULATOR;
+  const firestore = process.env.TETHER_FIRESTORE_EMULATOR;
+  if (!auth && !firestore) return null;
+  return { auth: auth ?? null, firestore: firestore ?? null };
+}
+
 ipcMain.handle('tether:bootstrap', () => ({
   firebaseConfig: loadFirebaseConfig(),
+  emulators: emulatorConfig(),
   ...resolveIdentity(),
 }));
 
@@ -244,7 +259,9 @@ if (!app.requestSingleInstanceLock()) {
       .replace(new RegExp(` ${app.getName()}\\/[\\d.]+`), '');
 
     try {
-      const started = await startRendererServer(path.join(__dirname, '..'));
+      const started = await startRendererServer(path.join(__dirname, '..'), {
+        emulators: emulatorConfig(),
+      });
       rendererUrl = started.url;
       if (!started.stable) {
         // The signed-in session lives in origin-keyed storage, so a different

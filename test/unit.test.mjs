@@ -106,24 +106,34 @@ ok('verifier and challenge are url-safe',
 ok('each flow gets a fresh verifier', createPkce().verifier !== pkce.verifier);
 
 // ---------- content security policy ----------
-// Firebase's sign-in popup loads Google's gapi script and relays through an
-// iframe on the auth domain. A CSP that omits those hosts does not fail
-// visibly — it surfaces as a bare "auth/internal-error", which is what broke
-// Google sign-in once already. Guard the specific hosts it needs.
-const html = fs.readFileSync(new URL('../renderer/index.html', import.meta.url), 'utf8');
-const csp = (html.match(/content="([^"]*default-src[^"]*)"/s)?.[1] ?? '').replace(/\s+/g, ' ');
-const directive = (name) => csp.match(new RegExp(`${name} ([^;]*)`))?.[1] ?? '';
+// Served as a header from main/server.js so it can vary per run. Firebase's
+// sign-in flow loads gapi and relays through an iframe on the auth domain; a
+// policy missing those hosts does not fail visibly, it surfaces as a bare
+// "auth/internal-error" — which is how Google sign-in broke once already.
+const { buildCsp } = require('../main/server.js');
+const prodCsp = buildCsp();
+const testCsp = buildCsp({ emulators: { auth: '127.0.0.1:9099', firestore: '127.0.0.1:8085' } });
+const directiveIn = (policy, name) => policy.match(new RegExp(`${name} ([^;]*)`))?.[1] ?? '';
 
-ok('CSP was found in index.html', csp.length > 0);
 ok('script-src allows gapi (else Google sign-in fails)',
-   directive('script-src').includes('https://apis.google.com'));
+   directiveIn(prodCsp, 'script-src').includes('https://apis.google.com'));
 ok('frame-src allows the auth relay iframe',
-   directive('frame-src').includes('firebaseapp.com'));
+   directiveIn(prodCsp, 'frame-src').includes('firebaseapp.com'));
 ok('connect-src allows same-origin requests',
-   directive('connect-src').includes("'self'"));
+   directiveIn(prodCsp, 'connect-src').includes("'self'"));
 ok('connect-src allows the identity APIs',
-   directive('connect-src').includes('googleapis.com'));
-ok('default-src is still locked to self', directive('default-src').trim() === "'self'");
+   directiveIn(prodCsp, 'connect-src').includes('googleapis.com'));
+ok('default-src is locked to self', directiveIn(prodCsp, 'default-src').trim() === "'self'");
+ok('object-src is denied', directiveIn(prodCsp, 'object-src').trim() === "'none'");
+
+// The emulator relaxation must be reachable only when emulators are configured.
+ok('production policy never mentions emulator hosts', !/127\.0\.0\.1|localhost:\d/.test(prodCsp));
+ok('emulator policy allows the auth emulator', testCsp.includes('http://127.0.0.1:9099'));
+ok('emulator policy allows the firestore emulator', testCsp.includes('http://127.0.0.1:8085'));
+
+// The document must not carry a second, diverging policy.
+const indexHtml = fs.readFileSync(new URL('../renderer/index.html', import.meta.url), 'utf8');
+ok('no meta CSP competing with the header', !indexHtml.includes('Content-Security-Policy'));
 
 // ---------- invites ----------
 // Shaped like a real config, but not one — the codec only cares about structure.

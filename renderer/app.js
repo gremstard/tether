@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore,
+  connectFirestoreEmulator,
   collection,
   addDoc,
   updateDoc,
@@ -13,7 +14,9 @@ import {
 } from 'firebase/firestore';
 
 import schema from '../shared/schema.js';
-import { initAuth, emailSignIn, emailSignUp, googleSignIn, signOut } from './auth.js';
+import {
+  initAuth, emailSignIn, emailSignUp, googleSignIn, signOut, useEmulator,
+} from './auth.js';
 import {
   claimUsername,
   downscaleImage,
@@ -154,7 +157,7 @@ async function showThread(threadId, selfUid, rendered) {
 }
 
 async function main() {
-  const { firebaseConfig } = await window.tether.bootstrap();
+  const { firebaseConfig, emulators } = await window.tether.bootstrap();
 
   if (!firebaseConfig) {
     show('setup');
@@ -164,6 +167,17 @@ async function main() {
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+
+  // Only ever set while the end-to-end tests are driving the app.
+  if (emulators?.firestore) {
+    const [host, port] = emulators.firestore.split(':');
+    connectFirestoreEmulator(db, host, Number(port));
+    log(`using firestore emulator at ${emulators.firestore}`);
+  }
+  if (emulators?.auth) {
+    useEmulator(app, `http://${emulators.auth}`);
+    log(`using auth emulator at ${emulators.auth}`);
+  }
 
   let selfUid = null;
   let peerUid = null;

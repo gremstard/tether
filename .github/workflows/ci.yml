@@ -16,7 +16,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      # The rules suites run against the Firestore emulator, which needs a JVM.
+      # The rules and end-to-end suites run against the Firebase emulators,
+      # which need a JVM.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,10 +25,39 @@ jobs:
 
       - run: npm ci
 
-      # The rules suites shell out to `firebase emulators:exec`. It is not a
-      # project dependency — pulling the whole CLI into node_modules for two
-      # test scripts is not worth it — so install it here instead.
+      # Not a project dependency: pulling the whole CLI into node_modules for a
+      # few test scripts is not worth it.
       - run: npm install -g firebase-tools@15
 
       - run: npm run build
-      - run: npm test
+
+      # The end-to-end suite launches the real app, so it needs a display.
+      - run: xvfb-run -a npm test
+
+  package:
+    # Catches the class of failure that only appears once the app is packaged —
+    # a bundle whose signature does not validate is reported by macOS as
+    # "damaged", and that reached users once already.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run pack
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Verify the packaged app is signed and launchable
+        run: |
+          APP="release/mac-$(node -p "process.arch")/Tether.app"
+          test -d "$APP" || { echo "no app bundle at $APP"; ls -R release | head -40; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -q "Identifier=com.tether.desktop" \
+            || { echo "bundle identifier was not applied"; exit 1; }
+          echo "packaged app is validly signed"

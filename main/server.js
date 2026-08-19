@@ -33,6 +33,46 @@ const PREFERRED_PORT = 47821;
 
 const SERVABLE = ['renderer', 'assets'];
 
+/**
+ * The page's Content-Security-Policy, served as a header rather than a meta tag.
+ *
+ * A header is the stronger form — it cannot be undone by anything injected into
+ * the document — and it can be built per run, which a static tag cannot. The
+ * emulator hosts are the reason that matters: tests need to reach them, and a
+ * shipped build must not be able to.
+ *
+ * `apis.google.com` is not optional: Firebase's sign-in flow loads gapi from
+ * there, and blocking it surfaces only as a bare "auth/internal-error".
+ */
+function buildCsp({ emulators } = {}) {
+  const connect = [
+    "'self'",
+    'https://*.googleapis.com',
+    'https://*.firebaseio.com',
+    'wss://*.firebaseio.com',
+    'https://*.firebaseapp.com',
+    'https://apis.google.com',
+  ];
+
+  // Only ever added when the app is pointed at emulators, which happens through
+  // environment variables that no packaged build sets.
+  for (const target of [emulators?.auth, emulators?.firestore]) {
+    if (target) connect.push(`http://${target}`, `ws://${target}`);
+  }
+
+  return [
+    "default-src 'self'",
+    "script-src 'self' https://apis.google.com",
+    "style-src 'self'",
+    "img-src 'self' data: https:",
+    "font-src 'self'",
+    `connect-src ${connect.join(' ')}`,
+    "frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com",
+    "object-src 'none'",
+    "base-uri 'none'",
+  ].join('; ');
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -75,7 +115,9 @@ function resolveWithinRoot(root, urlPath) {
  * lost session than an app that will not open. The caller is told, so it can say
  * so rather than leaving the user wondering why they were signed out.
  */
-function startRendererServer(root, { port = PREFERRED_PORT } = {}) {
+function startRendererServer(root, { port = PREFERRED_PORT, emulators = null } = {}) {
+  const csp = buildCsp({ emulators });
+
   const handler = (req, res) => {
     const file = resolveWithinRoot(root, req.url === '/' ? '/renderer/index.html' : req.url);
 
@@ -89,9 +131,11 @@ function startRendererServer(root, { port = PREFERRED_PORT } = {}) {
         res.writeHead(err.code === 'ENOENT' ? 404 : 500).end(String(err.code ?? 'error'));
         return;
       }
+      const type = MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
       res.writeHead(200, {
-        'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+        'Content-Type': type,
         'Cache-Control': 'no-store',
+        ...(type.startsWith('text/html') ? { 'Content-Security-Policy': csp } : {}),
       });
       res.end(body);
     });
@@ -142,4 +186,4 @@ function startRendererServer(root, { port = PREFERRED_PORT } = {}) {
   })();
 }
 
-module.exports = { startRendererServer, resolveWithinRoot, PREFERRED_PORT };
+module.exports = { startRendererServer, resolveWithinRoot, buildCsp, PREFERRED_PORT };

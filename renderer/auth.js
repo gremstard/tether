@@ -1,5 +1,6 @@
 import {
   getAuth,
+  connectAuthEmulator,
   setPersistence,
   indexedDBLocalPersistence,
   browserLocalPersistence,
@@ -20,6 +21,11 @@ import {
  * browser instead (see main/google-auth.js) and hands back an ID token, which is
  * exchanged for a Firebase session here.
  */
+/** Point auth at an emulator. Test-only; see main/index.js. */
+export function useEmulator(app, url) {
+  connectAuthEmulator(getAuth(app), url, { disableWarnings: true });
+}
+
 export function initAuth(app, { onSignedIn, onSignedOut }) {
   const auth = getAuth(app);
 

@@ -86,20 +86,16 @@ record messages with no window open. See [`main/store.js`](main/store.js).
 ## Testing
 
 ```bash
-npm run test:rules
+npm test
 ```
 
-Runs five suites against the Firestore emulator (needs Java): unit tests,
-directory rules, end-to-end DM intake, server rules, and the server client. Since
-there is no trusted server code anywhere, the rules are the only enforcement
-point — they are worth testing properly.
+Seven suites: unit tests, four emulator-backed rule/client suites, and an
+end-to-end run that launches the real app and drives the real UI through signup,
+messaging and a restart. Emulator suites need Java.
 
-## Background behaviour
-
-Closing the window keeps Tether resident in the menu bar so messages still
-arrive; **Quit Tether** in the tray menu is what actually stops it. Start-at-login
-is off until you turn it on, in Settings or the tray menu. See
-[`docs/BACKGROUND.md`](docs/BACKGROUND.md).
+The end-to-end suite exists because four user-facing breakages shipped while
+every module test passed — details and what is still uncovered in
+[`docs/TESTING.md`](docs/TESTING.md).
 
 ## Configuration
 
