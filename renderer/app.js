@@ -29,7 +29,10 @@ import {
   rememberServer, signIntoServer, watchChannel,
 } from './servers.js';
 
-const { pairId, messagesPath, newMessage, toLocalRecord, MESSAGE_TTL_DAYS } = schema;
+const {
+  pairId, messagesPath, newMessage, toLocalRecord, MESSAGE_TTL_DAYS,
+  normalizeUsername, isValidUsername,
+} = schema;
 
 const el = (id) => document.getElementById(id);
 const ui = {
@@ -166,6 +169,8 @@ async function main() {
   let peerUid = null;
   let thread = null;
   let signingUp = true;
+  /** Handle requested at sign-up, claimed once Firebase Auth has us signed in. */
+  let pendingUsername = null;
   let stopSweeper = null;
   let intake = null;
 
@@ -259,14 +264,35 @@ async function main() {
     onSignedIn: async (user) => {
       try {
         const profile = await getProfile(db, user.uid);
-        // A Google sign-in creates an auth user with no profile behind it, so
-        // the username step happens after the popup rather than before it.
+
         if (!profile?.username) {
           selfUid = user.uid;
+
+          // Signing up asked for a handle; claim it now that we are
+          // authenticated and allowed to touch the index.
+          if (pendingUsername) {
+            const wanted = pendingUsername;
+            pendingUsername = null;
+            try {
+              const username = await claimUsername(db, user.uid, wanted, {
+                email: user.email ?? null,
+              });
+              await enterApp(user, { ...profile, username });
+              return;
+            } catch (err) {
+              // Taken, or the claim was refused. The account exists, so send
+              // them to pick another rather than stranding them.
+              ui.finishError.textContent = err.message;
+            }
+          }
+
+          // Google sign-in produces an auth user with no profile at all, so the
+          // username step happens after the popup rather than before it.
           show('finish');
           ui.finishUsername.focus();
           return;
         }
+
         await enterApp(user, profile);
       } catch (err) {
         log(`could not load profile: ${err.message}`);
@@ -327,17 +353,20 @@ async function main() {
         return;
       }
 
-      // Check the handle before creating the account, so an obviously taken
-      // username doesn't leave an orphaned auth user behind.
-      const wanted = ui.username.value;
-      if (await lookupUsername(db, wanted)) {
-        ui.authError.textContent = `"${wanted.trim().toLowerCase()}" is already taken`;
+      // The handle cannot be checked before signing up: reading the username
+      // index requires an authenticated user, so a pre-flight lookup fails with
+      // "missing or insufficient permissions" before the account exists. Only
+      // the shape is validated here; the claim happens once we are signed in,
+      // and onSignedIn below carries it out.
+      const wanted = normalizeUsername(ui.username.value);
+      if (!isValidUsername(wanted)) {
+        ui.authError.textContent =
+          'usernames are 3–20 characters: letters, numbers, underscore';
         return;
       }
 
-      const credential = await emailSignUp(auth, email, ui.password.value);
-      await claimUsername(db, credential.user.uid, wanted, { email });
-      await enterApp(credential.user, { username: wanted.trim().toLowerCase() });
+      pendingUsername = wanted;
+      await emailSignUp(auth, email, ui.password.value);
     } catch (err) {
       ui.authError.textContent = err.message;
     }
