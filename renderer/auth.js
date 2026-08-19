@@ -3,7 +3,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithPopup,
+  signInWithCredential,
   GoogleAuthProvider,
   signOut,
 } from 'firebase/auth';
@@ -11,10 +11,11 @@ import {
 /**
  * Auth wiring for the sign-in screen.
  *
- * Google sign-in uses signInWithPopup rather than a redirect: Electron loads the
- * renderer from a file:// origin, and redirect-based flows have no origin to
- * come back to. The popup opens a real browser window against the Firebase
- * authDomain, which does work.
+ * Google sign-in deliberately does NOT use signInWithPopup. Google refuses OAuth
+ * inside embedded browser windows — an in-app popup is met with "This browser or
+ * app may not be secure". The main process runs the flow in the user's real
+ * browser instead (see main/google-auth.js) and hands back an ID token, which is
+ * exchanged for a Firebase session here.
  */
 export function initAuth(app, { onSignedIn, onSignedOut }) {
   const auth = getAuth(app);
@@ -35,8 +36,9 @@ export function emailSignUp(auth, email, password) {
   return createUserWithEmailAndPassword(auth, email, password);
 }
 
-export function googleSignIn(auth) {
-  return signInWithPopup(auth, new GoogleAuthProvider());
+export async function googleSignIn(auth) {
+  const { idToken, accessToken } = await window.tether.googleSignIn();
+  return signInWithCredential(auth, GoogleAuthProvider.credential(idToken, accessToken));
 }
 
 export { signOut };

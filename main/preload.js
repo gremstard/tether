@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('tether', {
     set: (enabled) => ipcRenderer.invoke('tether:login-item:set', enabled),
   },
   log: (line) => ipcRenderer.send('tether:log', line),
+  googleSignIn: () => ipcRenderer.invoke('tether:google-signin'),
   invite: {
     encode: (config) => ipcRenderer.invoke('tether:invite:encode', config),
     decode: (code) => ipcRenderer.invoke('tether:invite:decode', code),

@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const { MessageStore } = require('./store.js');
 const { encodeInvite, decodeInvite } = require('./invite.js');
 const { startRendererServer } = require('./server.js');
+const { signInWithGoogle } = require('./google-auth.js');
 const {
   createTray,
   getLaunchAtLogin,
@@ -191,6 +192,16 @@ ipcMain.handle('tether:store:clear', (_event, pairId) => store.clear(pairId));
 // Encoding lives in main so the codec can use node's zlib and crypto rather
 // than bundling equivalents into the renderer. There is no Cloud Function
 // behind this: a code is self-contained and resolved entirely on the client.
+
+// Google sign-in runs in the user's real browser, so it lives in main: it needs
+// to open an external URL and listen on a loopback port.
+ipcMain.handle('tether:google-signin', () => {
+  const config = loadFirebaseConfig();
+  return signInWithGoogle({
+    clientId: config?.googleOAuth?.clientId,
+    clientSecret: config?.googleOAuth?.clientSecret,
+  });
+});
 
 ipcMain.handle('tether:invite:encode', (_event, config) => encodeInvite(config));
 

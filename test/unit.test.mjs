@@ -82,6 +82,21 @@ for (const refused of [
 ok('query strings are ignored when resolving',
    resolveWithinRoot(ROOT, '/assets/icon.png?v=2')?.endsWith('icon.png') === true);
 
+// ---------- PKCE ----------
+const { challengeFor, createPkce } = require('../main/google-auth.js');
+
+// RFC 7636 Appendix B.
+is('S256 challenge matches the RFC 7636 vector',
+   challengeFor('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'),
+   'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+
+const pkce = createPkce();
+ok('verifier is within the RFC length bounds',
+   pkce.verifier.length >= 43 && pkce.verifier.length <= 128);
+ok('verifier and challenge are url-safe',
+   /^[A-Za-z0-9\-._~]+$/.test(pkce.verifier) && /^[A-Za-z0-9\-._~]+$/.test(pkce.challenge));
+ok('each flow gets a fresh verifier', createPkce().verifier !== pkce.verifier);
+
 // ---------- content security policy ----------
 // Firebase's sign-in popup loads Google's gapi script and relays through an
 // iframe on the auth domain. A CSP that omits those hosts does not fail

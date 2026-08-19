@@ -373,11 +373,17 @@ async function main() {
   });
 
   ui.googleBtn.addEventListener('click', async () => {
-    ui.authError.textContent = '';
+    // The flow leaves the app entirely, so say so — otherwise the window just
+    // sits there while the browser opens behind it.
+    ui.authError.textContent = 'Continue in your browser…';
+    ui.googleBtn.disabled = true;
     try {
       await googleSignIn(auth);
+      ui.authError.textContent = '';
     } catch (err) {
       ui.authError.textContent = err.message;
+    } finally {
+      ui.googleBtn.disabled = false;
     }
   });
 

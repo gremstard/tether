@@ -10,7 +10,7 @@
     "start:friend": "npm run build && TETHER_UID=phase0-user-b electron .",
     "test:rules": "firebase emulators:exec --only firestore --project tether-rules-test \"node test/rules.test.mjs\"",
     "test:unit": "node test/unit.test.mjs",
-    "test": "npm run test:unit && npm run test:rules && npm run test:signup && npm run test:intake && npm run test:server-rules && npm run test:servers",
+    "test": "npm run test:unit && npm run test:google && npm run test:rules && npm run test:signup && npm run test:intake && npm run test:server-rules && npm run test:servers",
     "icons": "node scripts/make-icons.js",
     "test:intake": "firebase emulators:exec --only firestore --project tether-e2e \"node test/intake.test.mjs\"",
     "test:server-rules": "firebase emulators:exec --only firestore --project tether-server-test \"node test/server-rules.test.mjs\"",
@@ -19,7 +19,8 @@
     "pack": "npm run prepackage && electron-builder --dir",
     "dist:mac": "npm run prepackage && electron-builder --mac --publish never",
     "dist:win": "npm run prepackage && electron-builder --win --publish never",
-    "test:signup": "firebase emulators:exec --only firestore --project tether-signup-test \"node test/signup.test.mjs\""
+    "test:signup": "firebase emulators:exec --only firestore --project tether-signup-test \"node test/signup.test.mjs\"",
+    "test:google": "electron test/google-auth.test.cjs"
   },
   "keywords": [],
   "author": {

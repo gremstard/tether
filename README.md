@@ -132,7 +132,10 @@ Live at https://chat-tether.web.app.
 
 ## Known gaps
 
-- **Google sign-in is untested.** The popup flow is wired up and the main process
+- **Google sign-in needs a one-time OAuth client id** — see
+  [`docs/GOOGLE_SIGNIN.md`](docs/GOOGLE_SIGNIN.md). It opens your real browser,
+  because Google refuses OAuth inside app windows.
+- **Old note, kept honest: Google sign-in is untested end to end.** The popup flow is wired up and the main process
   allows the auth window, but `file://` renderer origins are an awkward fit for
   Firebase's popup flow. Email/password is the safe path for now.
 - No group DMs.
