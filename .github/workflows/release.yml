@@ -70,7 +70,17 @@ jobs:
           body: |
             Desktop builds of Tether.
 
-            **These builds are unsigned.** macOS will refuse to open the app on
-            first launch — right-click the app and choose *Open*, or run
-            `xattr -dr com.apple.quarantine /Applications/Tether.app`. Windows
-            SmartScreen will warn; choose *More info* → *Run anyway*.
+            **These builds are signed ad-hoc but not notarized**, so macOS and
+            Windows will both warn on first launch. Nothing is wrong with the
+            download.
+
+            **macOS 15 (Sequoia) or later:** open Tether, let it be blocked, then
+            go to System Settings → Privacy & Security and click **Open Anyway**.
+            (Apple removed the old Control-click → Open shortcut in Sequoia.)
+
+            **macOS 14 or earlier:** Control-click the app and choose *Open*.
+
+            **Either, from a terminal:**
+            `xattr -dr com.apple.quarantine /Applications/Tether.app`
+
+            **Windows:** SmartScreen → *More info* → *Run anyway*.

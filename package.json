@@ -96,6 +96,7 @@
     },
     "linux": {
       "target": []
-    }
+    },
+    "afterPack": "scripts/adhoc-sign.js"
   }
 }

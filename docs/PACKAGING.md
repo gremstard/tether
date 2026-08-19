@@ -42,25 +42,46 @@ on a macOS runner and Windows on a Windows runner, then attaches both to a
 GitHub Release. Each platform builds on its own OS because neither can be
 cross-built reliably.
 
-## The builds are unsigned
+## Signing: ad-hoc, not notarized
 
-Signing macOS needs a paid Apple Developer account; signing Windows needs a
-code-signing certificate. Tether has neither, so:
+Builds are **ad-hoc signed** (`scripts/adhoc-sign.js`, run as an electron-builder
+`afterPack` hook) and **not notarized**. The distinction matters more than it
+sounds:
 
-- **macOS** refuses to open the app on first launch ("damaged, move to bin" —
-  which is Gatekeeper being unhelpful rather than anything being wrong). Users
-  right-click the app and choose *Open*, or run:
+- **No signature at all** — what shipping with `identity: null` alone produced —
+  leaves the bundle carrying Electron's own linker signature, which stops
+  matching once electron-builder renames the app and adds resources. macOS reads
+  a broken signature as **"'Tether' is damaged and can't be opened"**, which
+  sounds like corruption and pushes people to bin the app. On Apple Silicon an
+  unsigned binary will not launch at all.
+- **Ad-hoc signed** costs nothing, needs no account, and makes the signature
+  valid: `codesign --verify --deep --strict` passes. The app is no longer
+  "damaged".
+- **Notarized** would remove the warning entirely, and needs a paid Apple
+  Developer account. Tether does not have one.
 
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/Tether.app
-  ```
+So users still see an "unidentified developer" prompt on first launch. What they
+do about it depends on the macOS version:
 
-- **Windows** SmartScreen warns on an unrecognised publisher. Users choose
-  *More info* → *Run anyway*.
+**macOS 15 (Sequoia) and later** — Apple removed the Control-click → *Open*
+shortcut. Open the app, let it be blocked, then go to **System Settings →
+Privacy & Security**, scroll to the message about Tether, and click **Open
+Anyway**.
 
-This is stated on the release notes and worth repeating anywhere the app is
-linked. It is the single roughest edge in the download experience, and the only
-fix is paying for certificates.
+**macOS 14 and earlier** — Control-click the app and choose *Open*.
+
+**Either version**, the reliable one-liner:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Tether.app
+```
+
+Windows SmartScreen warns about an unrecognised publisher for the same reason —
+no code-signing certificate. Choose *More info* → *Run anyway*.
+
+The signing hook verifies its own work and fails the build if the signature does
+not validate, so a bundle that cannot launch is not something a release can
+silently ship again.
 
 ## What ships inside the package
 
