@@ -1,6 +1,6 @@
 {
   "name": "tether",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Federated, self-hosted chat. Your community, your backend.",
   "main": "main/index.js",
   "scripts": {
