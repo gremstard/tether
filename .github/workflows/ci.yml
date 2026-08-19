@@ -31,6 +31,15 @@ jobs:
 
       - run: npm run build
 
+      # Electron's SUID sandbox helper must be root-owned to run on Linux, and
+      # npm cannot set that. Fixing ownership keeps the app running sandboxed,
+      # as it does everywhere else — preferable to passing --no-sandbox and
+      # testing a configuration no user has.
+      - name: Allow Electron's sandbox to start
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
       # The end-to-end suite launches the real app, so it needs a display.
       - run: xvfb-run -a npm test
 
