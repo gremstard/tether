@@ -201,6 +201,10 @@ ipcMain.handle('tether:store:append', (_event, pairId, record) =>
   store.append(pairId, record)
 );
 
+ipcMain.handle('tether:store:revise', (_event, pairId, revision) =>
+  store.revise(pairId, revision)
+);
+
 ipcMain.handle('tether:store:clear', (_event, pairId) => store.clear(pairId));
 
 // --- server invites --------------------------------------------------------

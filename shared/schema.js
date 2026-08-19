@@ -60,6 +60,56 @@ function newMessage({ senderUid, recipientUid, content, now = new Date() }) {
 }
 
 /**
+ * Build a revision: a sender's later edit or deletion of a message they sent.
+ *
+ * Revisions exist because a delivered DM is already gone from the server — the
+ * recipient copied it to disk and acked, and cleanup removed it. There is
+ * nothing left to mutate. So an edit or a delete travels the same way the
+ * original did: as its own message, delivered, applied to local history, acked,
+ * and cleaned up.
+ *
+ * `targetId` is the document id of the message being revised. Recipients apply a
+ * revision only if their own copy says the reviser sent the original, which is
+ * checkable locally and is not something rules can verify once the original is
+ * deleted.
+ */
+function newRevision({ type, targetId, senderUid, recipientUid, content = null, now = new Date() }) {
+  if (type !== 'edit' && type !== 'delete') {
+    throw new Error(`unknown revision type: ${type}`);
+  }
+  if (type === 'edit' && !content) throw new Error('an edit needs content');
+
+  return {
+    type,
+    targetId,
+    senderUid,
+    content: type === 'edit' ? content : null,
+    sentAt: now,
+    pendingFor: [recipientUid],
+    expireAt: new Date(now.getTime() + MESSAGE_TTL_DAYS * 24 * 60 * 60 * 1000),
+  };
+}
+
+/** Path to a thread's revisions, alongside its messages. */
+function revisionsPath(uidA, uidB) {
+  return `dms/${pairId(uidA, uidB)}/revisions`;
+}
+
+/**
+ * Apply a revision to a stored message. Returns the new record, or null when
+ * the message should be dropped entirely.
+ *
+ * Refuses revisions from anyone but the message's own sender: the recipient
+ * holds the original, so this is the one place the claim can actually be
+ * checked.
+ */
+function applyRevision(record, revision) {
+  if (!record || record.senderUid !== revision.senderUid) return record;
+  if (revision.type === 'delete') return null;
+  return { ...record, content: revision.content, editedAt: revision.sentAt ?? Date.now() };
+}
+
+/**
  * Is this message eligible for the client-side sweep?
  *
  * Two disjoint cases end a message's life on the server:
@@ -113,6 +163,9 @@ function toLocalRecord(id, data, fallbackSentAt = Date.now()) {
 
 module.exports = {
   MESSAGE_TTL_DAYS,
+  newRevision,
+  revisionsPath,
+  applyRevision,
   SWEEP_MIN_AGE_DAYS,
   DAY_MS,
   USERNAME,

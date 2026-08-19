@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 
+const { applyRevision } = require('../shared/schema.js');
+
 /**
  * Durable local message history, one JSON file per thread.
  *
@@ -56,21 +58,32 @@ class MessageStore {
     return path.join(this.dir, `${pairId}.json`);
   }
 
-  async load(pairId) {
+  /**
+   * Read a thread's file.
+   *
+   * Files written before revisions existed are a bare array of messages; they
+   * are read as a thread with no held revisions rather than migrated eagerly,
+   * so an upgrade never rewrites history it did not need to touch.
+   */
+  async read(pairId) {
     // Resolve the path outside the try: an invalid thread id is a bug, not a
     // missing file, and must not be reported as an empty conversation.
     const file = this.fileFor(pairId);
     try {
-      const raw = await fsp.readFile(file, 'utf8');
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed = JSON.parse(await fsp.readFile(file, 'utf8'));
+      if (Array.isArray(parsed)) return { messages: parsed, held: {} };
+      return { messages: parsed.messages ?? [], held: parsed.held ?? {} };
     } catch (err) {
-      if (err.code === 'ENOENT') return [];
+      if (err.code === 'ENOENT') return { messages: [], held: {} };
       // A corrupt thread file shouldn't take the app down, but it also
       // shouldn't be silently overwritten — surface it and start empty.
       console.error(`[store] could not read thread ${pairId}: ${err.message}`);
-      return [];
+      return { messages: [], held: {} };
     }
+  }
+
+  async load(pairId) {
+    return (await this.read(pairId)).messages;
   }
 
   /**
@@ -84,26 +97,71 @@ class MessageStore {
   }
 
   async appendNow(pairId, record) {
-    const messages = await this.load(pairId);
+    const { messages, held } = await this.read(pairId);
     const at = messages.findIndex((m) => m.id === record.id);
     if (at === -1) messages.push(record);
     else messages[at] = { ...messages[at], ...record };
 
+    // A revision can arrive before the message it revises — they travel as
+    // separate listeners with no ordering between them — so any revision held
+    // for this id is applied the moment its target shows up.
+    const waiting = held[record.id];
+    if (waiting) {
+      const index = messages.findIndex((m) => m.id === record.id);
+      const revised = applyRevision(messages[index], waiting);
+      if (revised === null) messages.splice(index, 1);
+      else messages[index] = revised;
+      delete held[record.id];
+    }
+
     messages.sort((a, b) => a.sentAt - b.sentAt);
-    await this.write(pairId, messages);
+    await this.write(pairId, { messages, held });
     return messages;
+  }
+
+  /**
+   * Apply a sender's edit or deletion to local history.
+   *
+   * Held for later if the target has not arrived yet, so a revision can never
+   * be lost to a race with the message it refers to.
+   */
+  revise(pairId, revision) {
+    return this.enqueue(pairId, () => this.reviseNow(pairId, revision));
+  }
+
+  async reviseNow(pairId, revision) {
+    const { messages, held } = await this.read(pairId);
+    const at = messages.findIndex((m) => m.id === revision.targetId);
+
+    if (at === -1) {
+      held[revision.targetId] = revision;
+      await this.write(pairId, { messages, held });
+      return { applied: false, messages };
+    }
+
+    const revised = applyRevision(messages[at], revision);
+    // applyRevision returns the record unchanged when the reviser did not send
+    // it, which is how a forged revision is refused.
+    if (revised === messages[at]) return { applied: false, messages };
+
+    if (revised === null) messages.splice(at, 1);
+    else messages[at] = revised;
+
+    await this.write(pairId, { messages, held });
+    return { applied: true, messages };
   }
 
   /** Forget a thread. Only the user does this — server cleanup never gets here. */
   clear(pairId) {
-    return this.enqueue(pairId, () => this.write(pairId, []));
+    return this.enqueue(pairId, () => this.write(pairId, { messages: [], held: {} }));
   }
 
   /** Write via temp file + rename so a crash mid-write can't truncate history. */
-  async write(pairId, messages) {
+  async write(pairId, thread) {
     const file = this.fileFor(pairId);
     const tmp = `${file}.tmp`;
-    await fsp.writeFile(tmp, JSON.stringify(messages), 'utf8');
+    const payload = Array.isArray(thread) ? { messages: thread, held: {} } : thread;
+    await fsp.writeFile(tmp, JSON.stringify(payload), 'utf8');
     await fsp.rename(tmp, file);
   }
 }

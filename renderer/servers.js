@@ -1,7 +1,7 @@
 import { initializeApp, getApp, deleteApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc,
-  onSnapshot, orderBy, query, serverTimestamp, deleteDoc,
+  onSnapshot, orderBy, query, serverTimestamp, deleteDoc, updateDoc,
 } from 'firebase/firestore';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
 
@@ -183,6 +183,14 @@ export async function loadServers(directoryDb, selfUid) {
 
 export async function forgetServer(directoryDb, selfUid, serverId) {
   await deleteDoc(doc(directoryDb, `users/${selfUid}/servers`, serverId));
+}
+
+/** Edit a channel message. Only the author may, and the edit is disclosed. */
+export function editChannelMessage(db, channelId, messageId, content) {
+  return updateDoc(doc(db, channelMessagesPath(channelId), messageId), {
+    content,
+    editedAt: serverTimestamp(),
+  });
 }
 
 export function deleteChannelMessage(db, channelId, messageId) {

@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('tether', {
   store: {
     load: (pairId) => ipcRenderer.invoke('tether:store:load', pairId),
     append: (pairId, record) => ipcRenderer.invoke('tether:store:append', pairId, record),
+    revise: (pairId, revision) => ipcRenderer.invoke('tether:store:revise', pairId, revision),
     clear: (pairId) => ipcRenderer.invoke('tether:store:clear', pairId),
   },
 });

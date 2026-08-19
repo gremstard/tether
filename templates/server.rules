@@ -111,8 +111,7 @@ service cloud.firestore {
 
         allow read: if isMember();
 
-        // Channel history is permanent: no acks, no expiry, no sweep. A message
-        // may not be edited, so what people read is what was said.
+        // Channel history is permanent: no acks, no expiry, no sweep.
         allow create: if isMember()
           && request.resource.data.senderUid == me()
           && request.resource.data.content is string
@@ -120,7 +119,17 @@ service cloud.firestore {
           && request.resource.data.content.size() <= 4000
           && request.resource.data.sentAt == request.time;
 
-        allow update: if false;
+        // A member may edit their own message's text, and nothing else about
+        // it. Authorship, timestamp and identity stay fixed, and the edit is
+        // marked — a channel is a shared record, so a silent rewrite of what
+        // somebody read would be worse than no editing at all.
+        allow update: if isMember()
+          && resource.data.senderUid == me()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'editedAt'])
+          && request.resource.data.content is string
+          && request.resource.data.content.size() > 0
+          && request.resource.data.content.size() <= 4000
+          && request.resource.data.editedAt == request.time;
 
         // Deleting your own message, or moderation by the founder.
         allow delete: if isFounder()

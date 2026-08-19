@@ -119,8 +119,20 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   mid = ref.id;
 });
 
-await check('channel history is immutable', () =>
-  assertFails(updateDoc(doc(member, `channels/general/messages/${mid}`), { content: 'rewritten' })));
+await check('author may edit their own channel message', () =>
+  assertSucceeds(updateDoc(doc(member, `channels/general/messages/${mid}`),
+    { content: 'rewritten by its author', editedAt: serverTimestamp() })));
+
+await check('an edit must be marked as edited', () =>
+  assertFails(updateDoc(doc(member, `channels/general/messages/${mid}`), { content: 'silently rewritten' })));
+
+await check('another member cannot edit your channel message', () =>
+  assertFails(updateDoc(doc(founder, `channels/general/messages/${mid}`),
+    { content: 'put words in your mouth', editedAt: serverTimestamp() })));
+
+await check('an edit cannot rewrite authorship', () =>
+  assertFails(updateDoc(doc(member, `channels/general/messages/${mid}`),
+    { content: 'x', editedAt: serverTimestamp(), senderUid: FOUNDER })));
 
 await check('another member cannot delete your message', () =>
   assertFails(deleteDoc(doc(outsider, `channels/general/messages/${mid}`))));

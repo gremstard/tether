@@ -150,14 +150,70 @@ await check('SWEEP: old undelivered message can be deleted', () =>
 await check('delivered message can be deleted', () =>
   assertSucceeds(deleteDoc(ref(alice, oldDeliveredId))));
 
-await check('NO UNSEND: fresh undelivered message cannot be deleted', async () => {
+// Unsend is the sender's alone. The recipient must not be able to destroy a
+// message they simply have not collected yet — that was the original point of
+// the age floor, and it still holds for everyone but the author.
+await check('recipient cannot delete a fresh message they have not collected', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), `dms/${PAIR}/messages/fresh2`),
       { senderUid: ALICE, content: 'x', sentAt: Timestamp.fromMillis(Date.now() - DAY), pendingFor: [BOB],
         expireAt: Timestamp.fromMillis(Date.now()) });
   });
-  await assertFails(deleteDoc(ref(alice, 'fresh2')));
+  await assertFails(deleteDoc(ref(bob, 'fresh2')));
 });
+
+// ---------- revisions ----------
+const revs = (db) => collection(db, `dms/${PAIR}/revisions`);
+const goodRev = {
+  type: 'edit', targetId: 'msg-1', senderUid: ALICE, content: 'fixed wording',
+  sentAt: serverTimestamp(), pendingFor: [BOB], expireAt: Timestamp.fromMillis(Date.now() + 30 * DAY),
+};
+
+await check('sender may publish an edit', () => assertSucceeds(addDoc(revs(alice), goodRev)));
+
+await check('sender may publish a deletion', () =>
+  assertSucceeds(addDoc(revs(alice), { ...goodRev, type: 'delete', content: null })));
+
+await check('cannot publish a revision as someone else', () =>
+  assertFails(addDoc(revs(bob), { ...goodRev, senderUid: ALICE, pendingFor: [ALICE] })));
+
+await check('outsider cannot publish a revision', () =>
+  assertFails(addDoc(revs(mallory), { ...goodRev, senderUid: MALLORY })));
+
+await check('outsider cannot read revisions', () =>
+  assertFails(getDoc(doc(mallory, `dms/${PAIR}/revisions/anything`))));
+
+await check('a delete carrying content is refused', () =>
+  assertFails(addDoc(revs(alice), { ...goodRev, type: 'delete', content: 'sneaky' })));
+
+await check('an edit with empty content is refused', () =>
+  assertFails(addDoc(revs(alice), { ...goodRev, content: '' })));
+
+await check('an unknown revision type is refused', () =>
+  assertFails(addDoc(revs(alice), { ...goodRev, type: 'redact' })));
+
+await check('a backdated revision is refused', () =>
+  assertFails(addDoc(revs(alice), { ...goodRev, sentAt: Timestamp.fromMillis(Date.now() - DAY) })));
+
+// ---------- unsend ----------
+let mine, theirs;
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore();
+  const mk = async (sender, pendingFor) => {
+    const ref = doc(collection(db, `dms/${PAIR}/messages`));
+    await setDoc(ref, { senderUid: sender, content: 'x', sentAt: Timestamp.fromMillis(Date.now() - 60_000),
+                        pendingFor, expireAt: Timestamp.fromMillis(Date.now() + 30 * DAY) });
+    return ref.id;
+  };
+  mine = await mk(ALICE, [BOB]);
+  theirs = await mk(BOB, [ALICE]);
+});
+
+await check('UNSEND: sender may delete their own undelivered message', () =>
+  assertSucceeds(deleteDoc(doc(alice, `dms/${PAIR}/messages/${mine}`))));
+
+await check('still cannot delete the other person’s undelivered message', () =>
+  assertFails(deleteDoc(doc(alice, `dms/${PAIR}/messages/${theirs}`))));
 
 await env.cleanup();
 

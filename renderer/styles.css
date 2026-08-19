@@ -394,3 +394,54 @@ body {
   font: inherit;
   font-size: 12px;
 }
+
+/* --- message actions ----------------------------------------------------- */
+
+.msg { position: relative; }
+
+.actions {
+  position: absolute;
+  top: -10px;
+  right: 8px;
+  display: none;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+}
+.msg:hover .actions { display: flex; }
+.actions button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.actions button:hover { background: var(--theirs); color: var(--text); }
+
+/* The composer doubles as the editor for an existing message. */
+.composer.editing input { border-color: #f59f00; }
+.editing-banner {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  background: rgba(245, 159, 0, 0.12);
+  border-top: 1px solid rgba(245, 159, 0, 0.35);
+  color: var(--muted);
+  font-size: 12px;
+}
+.editing-banner.on { display: flex; }
+.editing-banner button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}

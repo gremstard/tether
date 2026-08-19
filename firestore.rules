@@ -126,15 +126,64 @@ service cloud.firestore {
           && !(me() in request.resource.data.pendingFor)
           && request.resource.data.pendingFor.hasOnly(resource.data.pendingFor);
 
-        // Two ways a message may be deleted, and no others:
+        // Three ways a message may be deleted, and no others:
         //
-        //  1. Delivered — nobody is waiting on it any more.
-        //  2. Abandoned — someone never collected it, and it is older than the
+        //  1. Its own sender removes it — an unsend. If the recipient has not
+        //     collected it yet, they never will.
+        //  2. Delivered — nobody is waiting on it any more.
+        //  3. Abandoned — someone never collected it, and it is older than the
         //     sweep floor. This is what replaces a native TTL policy on Spark.
         //
-        // The age floor is what stops case 2 from becoming an unsend button:
-        // without it, either participant could delete a message the other has
-        // simply not picked up yet.
+        // The age floor still applies to cases 2 and 3, which is what stops the
+        // sweep from becoming an unsend button for the *other* participant:
+        // nobody but the sender may delete a message the recipient has not
+        // picked up yet.
+        allow delete: if isParticipant(pairId)
+          && (
+            resource.data.senderUid == me()
+            || resource.data.pendingFor.size() == 0
+            || resource.data.sentAt < request.time - sweepFloor()
+          );
+      }
+
+      // A sender's later edit or deletion of a message they sent.
+      //
+      // These exist because a delivered message is already gone from the server
+      // — copied to local history, acked, and cleaned up — so there is nothing
+      // left to mutate. A revision travels like any other message and is applied
+      // to each recipient's own copy.
+      //
+      // Rules cannot check that the reviser sent the original, since the
+      // original may no longer exist. They enforce only that a reviser cannot
+      // claim to be somebody else; recipients hold the original and refuse
+      // revisions whose sender does not match it.
+      match /revisions/{revisionId} {
+
+        allow read: if isParticipant(pairId);
+
+        allow create: if isParticipant(pairId)
+          && request.resource.data.senderUid == me()
+          && request.resource.data.targetId is string
+          && request.resource.data.targetId.size() > 0
+          && (request.resource.data.type == 'edit' || request.resource.data.type == 'delete')
+          && (
+            request.resource.data.type == 'delete'
+              ? request.resource.data.content == null
+              : (request.resource.data.content is string
+                 && request.resource.data.content.size() > 0
+                 && request.resource.data.content.size() <= 4000)
+          )
+          && request.resource.data.sentAt == request.time
+          && request.resource.data.pendingFor is list
+          && request.resource.data.pendingFor.hasOnly(members(pairId))
+          && !(me() in request.resource.data.pendingFor);
+
+        // Acking, exactly as for messages.
+        allow update: if isParticipant(pairId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingFor'])
+          && !(me() in request.resource.data.pendingFor)
+          && request.resource.data.pendingFor.hasOnly(resource.data.pendingFor);
+
         allow delete: if isParticipant(pairId)
           && (
             resource.data.pendingFor.size() == 0

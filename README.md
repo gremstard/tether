@@ -10,7 +10,8 @@ Phases 0–3: real Firebase Auth with usernames, the real DM data model, rules
 covered by an emulator test suite, local message history, native OS
 notifications, tray residency with start-at-login, multiple conversations that
 all receive in the background, and servers — Discord-style communities, each in
-its own Firebase project, packaged as installers for macOS and Windows.
+its own Firebase project, packaged as installers for macOS and Windows. Senders
+can edit and delete their own messages ([`docs/EDITING.md`](docs/EDITING.md)).
 
 Tether runs on the Firebase **Spark** plan permanently — no Cloud Functions, no
 Cloud Storage, no TTL policies. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for

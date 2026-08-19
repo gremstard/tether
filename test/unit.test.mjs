@@ -58,6 +58,54 @@ await store.clear('bbb222_ccc333');
 is('user clear empties the thread', (await store.load('bbb222_ccc333')).length, 0);
 fs.rmSync(dir, { recursive: true, force: true });
 
+// ---------- revisions ----------
+// An edit or delete of an already-delivered DM cannot mutate the server copy:
+// it is gone. Revisions travel as their own messages and are applied to local
+// history, so this is where the semantics actually live.
+const revDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tether-rev-'));
+const revStore = new MessageStore(revDir);
+const rtid = 'aaa111_bbb222';
+const original = { id: 'msg1', senderUid: 'aaa111', content: 'origonal typo', sentAt: 1000 };
+
+await revStore.append(rtid, original);
+await revStore.revise(rtid, { type: 'edit', targetId: 'msg1', senderUid: 'aaa111', content: 'original, fixed', sentAt: 2000 });
+let msgs = await revStore.load(rtid);
+is('edit rewrites the stored message', msgs[0].content, 'original, fixed');
+ok('edit records when it happened', msgs[0].editedAt === 2000);
+
+// Someone else must not be able to rewrite your words.
+await revStore.revise(rtid, { type: 'edit', targetId: 'msg1', senderUid: 'bbb222', content: 'words I never said', sentAt: 3000 });
+is('a forged edit is refused', (await revStore.load(rtid))[0].content, 'original, fixed');
+
+await revStore.revise(rtid, { type: 'delete', targetId: 'msg1', senderUid: 'bbb222' });
+is('a forged delete is refused', (await revStore.load(rtid)).length, 1);
+
+await revStore.revise(rtid, { type: 'delete', targetId: 'msg1', senderUid: 'aaa111' });
+is('the sender can delete their message', (await revStore.load(rtid)).length, 0);
+
+// Revisions and messages arrive on separate listeners, so a revision can land
+// first. It must wait rather than vanish.
+const raceTid = 'ccc333_ddd444';
+await revStore.revise(raceTid, { type: 'edit', targetId: 'late', senderUid: 'ccc333', content: 'edited', sentAt: 500 });
+is('a revision with no target yet applies to nothing', (await revStore.load(raceTid)).length, 0);
+await revStore.append(raceTid, { id: 'late', senderUid: 'ccc333', content: 'as sent', sentAt: 400 });
+is('a held revision applies when its message arrives', (await revStore.load(raceTid))[0].content, 'edited');
+
+const deleteRace = 'eee555_fff666';
+await revStore.revise(deleteRace, { type: 'delete', targetId: 'gone', senderUid: 'eee555' });
+await revStore.append(deleteRace, { id: 'gone', senderUid: 'eee555', content: 'unsent', sentAt: 400 });
+is('a held delete removes the message on arrival', (await revStore.load(deleteRace)).length, 0);
+
+// History written before revisions existed is a bare array.
+const legacyTid = 'ggg777_hhh888';
+fs.writeFileSync(path.join(revDir, 'threads', `${legacyTid}.json`),
+  JSON.stringify([{ id: 'old', senderUid: 'ggg777', content: 'from an older build', sentAt: 1 }]));
+is('legacy thread files still read', (await revStore.load(legacyTid))[0].content, 'from an older build');
+await revStore.revise(legacyTid, { type: 'edit', targetId: 'old', senderUid: 'ggg777', content: 'still editable', sentAt: 2 });
+is('legacy threads accept revisions', (await revStore.load(legacyTid))[0].content, 'still editable');
+
+fs.rmSync(revDir, { recursive: true, force: true });
+
 // ---------- renderer server whitelist ----------
 // Security-relevant: this decides what a local HTTP origin will hand out.
 const { resolveWithinRoot } = require('../main/server.js');

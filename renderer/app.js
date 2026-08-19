@@ -25,11 +25,11 @@ import {
   saveAvatar,
 } from './profile.js';
 import { startSweeper, sweepThread, effectiveCutoffDays } from './sweep.js';
-import { createIntakeManager, loadPeers, rememberPeer } from './threads.js';
+import { createIntakeManager, loadPeers, publishRevision, rememberPeer } from './threads.js';
 import {
-  connect, createChannel, createServer, currentServerUser, forgetServer,
-  joinServer, listChannels, loadServers, postToChannel, readServerInfo,
-  rememberServer, signIntoServer, watchChannel,
+  connect, createChannel, createServer, currentServerUser, deleteChannelMessage,
+  editChannelMessage, forgetServer, joinServer, listChannels, loadServers,
+  postToChannel, readServerInfo, rememberServer, signIntoServer, watchChannel,
 } from './servers.js';
 
 const {
@@ -94,6 +94,8 @@ const ui = {
   createBtn: el('create-server'),
   copyInvite: el('copy-invite'),
   serverStatus: el('server-status'),
+  editingBanner: el('editing-banner'),
+  cancelEdit: el('cancel-edit'),
   dot: el('status-dot'),
   myUid: el('my-uid'),
 };
@@ -118,11 +120,12 @@ function setAvatar(dataUrl) {
  * (a locally-written message is seen once provisionally, then again once the
  * server timestamp resolves).
  */
-function renderRecord(record, selfUid, rendered) {
+function renderRecord(record, selfUid, rendered, actions = null) {
   const existing = rendered.get(record.id);
   const node = existing ?? document.createElement('div');
+  const mine = record.senderUid === selfUid;
 
-  node.className = record.senderUid === selfUid ? 'msg mine' : 'msg';
+  node.className = mine ? 'msg mine' : 'msg';
   node.replaceChildren();
 
   const body = document.createElement('span');
@@ -134,7 +137,29 @@ function renderRecord(record, selfUid, rendered) {
   meta.textContent = record.sentAt
     ? new Date(record.sentAt).toLocaleTimeString()
     : 'sending…';
+  // An edit is always disclosed. Quietly rewriting what somebody already read
+  // would be worse than not allowing edits at all.
+  if (record.editedAt) meta.textContent += ' · edited';
   node.appendChild(meta);
+
+  if (mine && actions) {
+    const bar = document.createElement('span');
+    bar.className = 'actions';
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => actions.edit(record));
+    bar.appendChild(edit);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Delete';
+    remove.addEventListener('click', () => actions.delete(record));
+    bar.appendChild(remove);
+
+    node.appendChild(bar);
+  }
 
   if (!existing) {
     ui.messages.appendChild(node);
@@ -148,11 +173,11 @@ function renderRecord(record, selfUid, rendered) {
  * anything that arrived, so displaying a thread never touches Firestore and
  * switching between threads costs nothing.
  */
-async function showThread(threadId, selfUid, rendered) {
+async function showThread(threadId, selfUid, rendered, actions) {
   ui.messages.replaceChildren();
   rendered.clear();
   for (const record of await window.tether.store.load(threadId)) {
-    renderRecord(record, selfUid, rendered);
+    renderRecord(record, selfUid, rendered, actions);
   }
 }
 
@@ -195,6 +220,60 @@ async function main() {
   /** docId -> node for the thread currently on screen. */
   const rendered = new Map();
 
+  /** The message being edited, if any: { id, scope } where scope is 'dm'|'channel'. */
+  let editing = null;
+
+  function stopEditing() {
+    editing = null;
+    ui.editingBanner.classList.remove('on');
+    ui.composer.classList.remove('editing');
+    ui.input.value = '';
+    ui.input.placeholder = 'Message';
+  }
+
+  function startEditing(record, scope) {
+    editing = { id: record.id, scope };
+    ui.editingBanner.classList.add('on');
+    ui.composer.classList.add('editing');
+    ui.input.value = record.content;
+    ui.input.placeholder = 'Edit your message';
+    ui.input.focus();
+    ui.input.select();
+  }
+
+  /** Edit and delete, for a message you sent in a DM. */
+  const dmActions = {
+    edit: (record) => startEditing(record, 'dm'),
+    delete: async (record) => {
+      if (editing?.id === record.id) stopEditing();
+      try {
+        await publishRevision(db, selfUid, peerUid, { type: 'delete', targetId: record.id });
+        await window.tether.store.revise(pairId(selfUid, peerUid), {
+          type: 'delete', targetId: record.id, senderUid: selfUid, content: null, sentAt: Date.now(),
+        });
+        rendered.get(record.id)?.remove();
+        rendered.delete(record.id);
+      } catch (err) {
+        log(`could not delete message: ${err.code ?? ''} ${err.message}`);
+      }
+    },
+  };
+
+  /** The same, for a channel message — which lives on the server project. */
+  const channelActions = {
+    edit: (record) => startEditing(record, 'channel'),
+    delete: async (record) => {
+      const server = servers.get(activeServer);
+      if (!server) return;
+      if (editing?.id === record.id) stopEditing();
+      try {
+        await deleteChannelMessage(server.conn.db, activeChannel, record.id);
+      } catch (err) {
+        log(`could not delete message: ${err.code ?? ''} ${err.message}`);
+      }
+    },
+  };
+
   const cutoffDays = () => effectiveCutoffDays(ui.cutoffInput.value);
 
   function startSweeping() {
@@ -223,7 +302,7 @@ async function main() {
     intake = createIntakeManager(db, selfUid, {
       onMessage: (peer, record, { priming }) => {
         if (peer.uid === peerUid) {
-          renderRecord(record, selfUid, rendered);
+          renderRecord(record, selfUid, rendered, dmActions);
           return;
         }
         // Not on screen: count it, unless it is startup backlog we have
@@ -235,6 +314,12 @@ async function main() {
       },
       notify: (peer, record) => {
         window.tether.notify(labelFor(peer.uid), record.content, peer.uid);
+      },
+      onRevision: async (peer, revision, result) => {
+        if (peer.uid !== peerUid || !result?.applied) return;
+        // Re-render from local history: the store is what the revision was
+        // applied to, so the view follows it rather than guessing.
+        await showThread(pairId(selfUid, peer.uid), selfUid, rendered, dmActions);
       },
       onError: (peer, err) => log(`thread ${labelFor(peer.uid)}: ${err.message}`),
     });
@@ -419,6 +504,7 @@ async function main() {
 
   ui.finishSignout.addEventListener('click', () => signOut(auth));
   ui.signOutBtn.addEventListener('click', () => signOut(auth));
+  ui.cancelEdit.addEventListener('click', stopEditing);
 
   // --- settings ------------------------------------------------------------
 
@@ -506,6 +592,7 @@ async function main() {
   }
 
   function showDms() {
+    stopEditing();
     activeServer = null;
     servers.forEach((s) => s.stopChannel?.());
     ui.dmPane.classList.remove('hidden');
@@ -535,8 +622,9 @@ async function main() {
   function renderChannelMessages(messages, server) {
     ui.messages.replaceChildren();
     for (const message of messages) {
+      const mine = message.senderUid === server.uid;
       const node = document.createElement('div');
-      node.className = message.senderUid === server.uid ? 'msg mine' : 'msg';
+      node.className = mine ? 'msg mine' : 'msg';
 
       const who = document.createElement('span');
       who.className = 'meta';
@@ -552,7 +640,24 @@ async function main() {
       when.textContent = message.sentAt?.toDate
         ? message.sentAt.toDate().toLocaleTimeString()
         : 'sending…';
+      if (message.editedAt) when.textContent += ' · edited';
       node.appendChild(when);
+
+      if (mine) {
+        const bar = document.createElement('span');
+        bar.className = 'actions';
+        for (const [label, run] of [
+          ['Edit', () => channelActions.edit(message)],
+          ['Delete', () => channelActions.delete(message)],
+        ]) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = label;
+          button.addEventListener('click', run);
+          bar.appendChild(button);
+        }
+        node.appendChild(bar);
+      }
 
       ui.messages.appendChild(node);
     }
@@ -560,6 +665,7 @@ async function main() {
   }
 
   function openChannel(server, channelId) {
+    stopEditing();
     server.stopChannel?.();
     activeChannel = channelId;
     ui.peerName.textContent = `# ${channelId}`;
@@ -767,7 +873,8 @@ async function main() {
     const profile = await getProfile(db, uid).catch(() => null);
     setAvatar(profile?.pfpBase64);
 
-    await showThread(thread.threadId, selfUid, rendered);
+    stopEditing();
+    await showThread(thread.threadId, selfUid, rendered, dmActions);
     renderSidebar();
     ui.input.focus();
   }
@@ -830,6 +937,28 @@ async function main() {
     event.preventDefault();
     const content = ui.input.value.trim();
     if (!content) return;
+
+    // The composer doubles as the editor: when a message is being edited,
+    // submitting revises it rather than sending something new.
+    if (editing) {
+      const { id, scope } = editing;
+      stopEditing();
+      try {
+        if (scope === 'channel') {
+          const server = servers.get(activeServer);
+          await editChannelMessage(server.conn.db, activeChannel, id, content);
+        } else {
+          await publishRevision(db, selfUid, peerUid, { type: 'edit', targetId: id, content });
+          await window.tether.store.revise(pairId(selfUid, peerUid), {
+            type: 'edit', targetId: id, senderUid: selfUid, content, sentAt: Date.now(),
+          });
+          await showThread(pairId(selfUid, peerUid), selfUid, rendered, dmActions);
+        }
+      } catch (err) {
+        log(`could not edit message: ${err.code ?? ''} ${err.message}`);
+      }
+      return;
+    }
 
     // A server channel is open: post there instead of to a DM thread.
     if (activeServer && activeChannel) {

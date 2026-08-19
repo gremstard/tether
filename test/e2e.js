@@ -96,7 +96,12 @@ async function phaseSignup(win) {
     email: `probe${stamp}@example.com`,
     password: 'test-password-123',
     peerUsername: `peer${String(stamp).slice(-6)}`,
-    message: 'hello from the e2e test',
+    // Deliberately non-overlapping: if the edited text contained the original
+    // as a substring, "the original is gone" would match itself and pass
+    // whatever the app did.
+    message: 'first draft of the message',
+    editedMessage: 'completely rewritten wording',
+    doomedMessage: 'this one gets removed',
   };
 
   const origin = await checkLaunch(win);
@@ -141,6 +146,47 @@ async function phaseSignup(win) {
     await waitFor(win, `[...document.querySelectorAll('#messages .msg')].some(n => n.textContent.includes(${JSON.stringify(account.message)}))`,
       { label: 'the sent message' }));
 
+  // --- editing and deleting your own messages --------------------------
+  const hasText = (text) =>
+    `[...document.querySelectorAll('#messages .msg')].some(n => n.textContent.includes(${JSON.stringify(text)}))`;
+
+  ok('own messages offer edit and delete',
+    await waitFor(win, `document.querySelectorAll('#messages .msg.mine .actions button').length >= 2`,
+      { label: 'message actions' }));
+
+  // Edit: click Edit, change the text, submit.
+  await win.webContents.executeJavaScript(
+    `([...document.querySelectorAll('#messages .msg.mine .actions button')].find(b => b.textContent === 'Edit').click(), true)`
+  );
+  ok('editing preloads the existing text',
+    await waitFor(win, `document.getElementById('input').value === ${JSON.stringify(account.message)}`,
+      { label: 'the composer preloaded for editing' }));
+
+  await typeInto(win, 'input', account.editedMessage);
+  await win.webContents.executeJavaScript(`document.getElementById('composer').requestSubmit()`);
+
+  ok('edit replaces the message text',
+    await waitFor(win, hasText(account.editedMessage), { label: 'the edited message' }));
+  ok('the original text is gone', !(await win.webContents.executeJavaScript(hasText(account.message))));
+  ok('an edit is disclosed as edited',
+    await waitFor(win, `[...document.querySelectorAll('#messages .msg .meta')].some(n => n.textContent.includes('edited'))`,
+      { label: 'the edited marker' }));
+
+  // Send a second message and delete it.
+  await typeInto(win, 'input', account.doomedMessage);
+  await win.webContents.executeJavaScript(`document.getElementById('composer').requestSubmit()`);
+  ok('second message sends', await waitFor(win, hasText(account.doomedMessage), { label: 'the second message' }));
+
+  await win.webContents.executeJavaScript(`(() => {
+    const nodes = [...document.querySelectorAll('#messages .msg.mine')];
+    const target = nodes.find(n => n.textContent.includes(${JSON.stringify(account.doomedMessage)}));
+    [...target.querySelectorAll('.actions button')].find(b => b.textContent === 'Delete').click();
+    return true;
+  })()`);
+
+  ok('delete removes the message from view',
+    await waitFor(win, `!${hasText(account.doomedMessage)}`, { label: 'the deleted message to disappear' }));
+
   ok('no CSP violations while signing up and messaging', cspViolations.length === 0, cspViolations[0]);
   ok('no renderer errors while signing up and messaging', rendererErrors.length === 0, rendererErrors[0]);
 }
@@ -172,10 +218,22 @@ async function phaseRestore(win) {
     await waitFor(win, `document.querySelectorAll('#thread-list li').length > 0`,
       { label: 'restored conversations', timeout: 20000 }).catch(() => false));
 
-  ok('local history survives a restart',
+  // The edited text, not the original, is what must come back — and the
+  // deleted message must stay gone. Local history is the only copy by now.
+  ok('the edited message survives a restart',
     await waitFor(win, `(document.querySelector('#thread-list li')?.click(), true) &&
-      [...document.querySelectorAll('#messages .msg')].some(n => n.textContent.includes(${JSON.stringify(readState().message)}))`,
-      { label: 'restored messages', timeout: 20000 }).catch(() => false));
+      [...document.querySelectorAll('#messages .msg')].some(n => n.textContent.includes(${JSON.stringify(state.editedMessage)}))`,
+      { label: 'restored edited message', timeout: 20000 }).catch(() => false));
+
+  ok('the pre-edit text does not come back',
+    !(await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll('#messages .msg')].some(n => n.textContent.includes(${JSON.stringify(state.message)}) && !n.textContent.includes(${JSON.stringify(state.editedMessage)}))`
+    )));
+
+  ok('a deleted message stays deleted',
+    !(await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll('#messages .msg')].some(n => n.textContent.includes(${JSON.stringify(state.doomedMessage)}))`
+    )));
 
   ok('no CSP violations after restart', cspViolations.length === 0, cspViolations[0]);
 }

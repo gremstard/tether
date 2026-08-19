@@ -54,6 +54,21 @@ So members authenticate to each server project separately, and handles are held
 unique per server rather than globally. Details and the trust consequences are in
 [SERVERS.md](SERVERS.md).
 
+## 5. Senders may edit and delete their own messages
+
+The build doc left this open (§7: "Message editing/deletion by the sender").
+Decided: yes, for both DMs and channels, by the author only.
+
+Channels mutate the message in place, with the edit disclosed. DMs cannot — a
+delivered message no longer exists on the server — so edits and deletions travel
+as their own delivered documents and are applied to each local copy. Full design
+in [EDITING.md](EDITING.md).
+
+This narrowed one earlier rule: deleting a DM no longer requires it to be
+delivered or stale, *for its sender*. Everyone else is still held to the old
+constraint, so a recipient still cannot delete a message they have not
+collected.
+
 ## Consequences for what was already built
 
 - **Delete-on-ack is unchanged**, and remains the primary cleanup path. The
