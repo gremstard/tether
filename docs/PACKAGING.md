@@ -102,3 +102,20 @@ pointing a dev build somewhere else.
 
 A Firebase client config is public by design — security lives in the Firestore
 rules, not in hiding the project id.
+
+## Why the app serves itself over HTTP
+
+The renderer is served from `http://localhost` on an ephemeral port rather than
+loaded from `file://`. This is not cosmetic: Firebase's sign-in popup returns the
+credential to its opener by `postMessage` and checks that origin against the
+project's authorized domains. A `file://` page has no origin Firebase can
+authorize, so Google sign-in fails there with a bare `auth/internal-error`.
+`localhost` is authorized in every Firebase project by default.
+
+The server binds to loopback on a random port and serves a fixed whitelist
+(`renderer/`, `assets/`) — never the app root, which would put `main/` and
+`config/` within reach of any other local process. The path check runs on the
+resolved path, so encoded traversal is refused too.
+
+Electron's default user agent is also stripped of its `Electron/x.y.z` token:
+Google refuses OAuth from user agents it recognises as embedded browsers.

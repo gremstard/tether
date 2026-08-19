@@ -58,6 +58,30 @@ await store.clear('bbb222_ccc333');
 is('user clear empties the thread', (await store.load('bbb222_ccc333')).length, 0);
 fs.rmSync(dir, { recursive: true, force: true });
 
+// ---------- renderer server whitelist ----------
+// Security-relevant: this decides what a local HTTP origin will hand out.
+const { resolveWithinRoot } = require('../main/server.js');
+const ROOT = '/srv/app';
+
+for (const allowed of ['/renderer/index.html', '/renderer/dist/bundle.js', '/assets/icon.png']) {
+  ok(`serves ${allowed}`, resolveWithinRoot(ROOT, allowed) !== null);
+}
+
+for (const refused of [
+  '/main/index.js',                 // app code
+  '/config/firebase.config.json',   // local config
+  '/../../etc/passwd',              // traversal
+  '/renderer/../main/store.js',     // traversal through an allowed prefix
+  '/renderer/%2e%2e/main/store.js', // encoded traversal
+  '/package.json',
+  '/test/unit.test.mjs',
+]) {
+  ok(`refuses ${refused}`, resolveWithinRoot(ROOT, refused) === null);
+}
+
+ok('query strings are ignored when resolving',
+   resolveWithinRoot(ROOT, '/assets/icon.png?v=2')?.endsWith('icon.png') === true);
+
 // ---------- invites ----------
 // Shaped like a real config, but not one — the codec only cares about structure.
 const cfg = {

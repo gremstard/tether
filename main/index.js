@@ -1,11 +1,12 @@
 'use strict';
 
-const { app, BrowserWindow, Notification, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Notification, ipcMain, shell, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
 const { MessageStore } = require('./store.js');
 const { encodeInvite, decodeInvite } = require('./invite.js');
+const { startRendererServer } = require('./server.js');
 const {
   createTray,
   getLaunchAtLogin,
@@ -74,6 +75,7 @@ function isAuthPopupUrl(rawUrl) {
 
 let mainWindow = null;
 let store = null;
+let rendererUrl = null;
 let tray = null;
 
 /**
@@ -98,7 +100,9 @@ function createWindow({ startHidden = false } = {}) {
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  // Served over http://localhost rather than loaded from file:// — see
+  // main/server.js for why Google sign-in depends on it.
+  mainWindow.loadURL(rendererUrl);
 
   // Surface renderer-side errors in the terminal; without this a thrown error
   // in the bundle just silently leaves you on a blank screen.
@@ -215,9 +219,26 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', showWindow);
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     if (process.platform === 'darwin') app.setName('Tether');
     store = new MessageStore(app.getPath('userData'));
+
+    // Google refuses OAuth from user agents it recognises as embedded browsers,
+    // and Electron announces itself in the default UA. Dropping those tokens
+    // leaves an ordinary Chrome UA, which is what the sign-in popup needs to be
+    // allowed to proceed.
+    app.userAgentFallback = session.defaultSession
+      .getUserAgent()
+      .replace(/ Electron\/[\d.]+/, '')
+      .replace(new RegExp(` ${app.getName()}\\/[\\d.]+`), '');
+
+    try {
+      ({ url: rendererUrl } = await startRendererServer(path.join(__dirname, '..')));
+    } catch (err) {
+      console.error(`[tether] could not start the renderer server: ${err.message}`);
+      app.quit();
+      return;
+    }
 
     const startHidden = startedHidden();
     createWindow({ startHidden });
