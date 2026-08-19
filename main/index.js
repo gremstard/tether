@@ -6,7 +6,7 @@ const fs = require('node:fs');
 
 const { MessageStore } = require('./store.js');
 const { encodeInvite, decodeInvite } = require('./invite.js');
-const { startRendererServer } = require('./server.js');
+const { startRendererServer, PREFERRED_PORT } = require('./server.js');
 const { signInWithGoogle } = require('./google-auth.js');
 const {
   createTray,
@@ -244,7 +244,16 @@ if (!app.requestSingleInstanceLock()) {
       .replace(new RegExp(` ${app.getName()}\\/[\\d.]+`), '');
 
     try {
-      ({ url: rendererUrl } = await startRendererServer(path.join(__dirname, '..')));
+      const started = await startRendererServer(path.join(__dirname, '..'));
+      rendererUrl = started.url;
+      if (!started.stable) {
+        // The signed-in session lives in origin-keyed storage, so a different
+        // port means starting from a signed-out app.
+        console.warn(
+          `[tether] port ${PREFERRED_PORT} was busy; using ${started.port}. ` +
+            'This run will not remember a signed-in session.'
+        );
+      }
     } catch (err) {
       console.error(`[tether] could not start the renderer server: ${err.message}`);
       app.quit();

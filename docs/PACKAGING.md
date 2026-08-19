@@ -112,9 +112,22 @@ project's authorized domains. A `file://` page has no origin Firebase can
 authorize, so Google sign-in fails there with a bare `auth/internal-error`.
 `localhost` is authorized in every Firebase project by default.
 
-The server binds to loopback on a random port and serves a fixed whitelist
-(`renderer/`, `assets/`) — never the app root, which would put `main/` and
-`config/` within reach of any other local process. The path check runs on the
+The port is **fixed** (47821), and that is load-bearing rather than tidy: a
+signed-in Firebase session is stored against the page's origin, and an origin
+includes its port. Binding a random port each launch silently signed the user
+out every time, and took their conversation and server lists with it, since
+those only load once signed in. If the port is occupied the app falls back to an
+ephemeral one and logs that the session will not survive this run.
+
+Both loopback families are bound on that port. `localhost` resolves to `::1`
+before `127.0.0.1` on a typical macOS box, and Chromium does not fall back the
+way node does — an IPv4-only listener is simply unreachable, surfacing as a bare
+`ERR_FAILED`. The origin stays spelled `localhost`, which is what Firebase
+authorizes and what the stored session is keyed to.
+
+Only loopback is bound, never a wildcard, and the server serves a fixed
+whitelist (`renderer/`, `assets/`) — never the app root, which would put `main/`
+and `config/` within reach of any other local process. The path check runs on the
 resolved path, so encoded traversal is refused too.
 
 Electron's default user agent is also stripped of its `Electron/x.y.z` token:

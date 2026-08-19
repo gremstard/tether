@@ -1,5 +1,8 @@
 import {
   getAuth,
+  setPersistence,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -19,7 +22,20 @@ import {
  */
 export function initAuth(app, { onSignedIn, onSignedOut }) {
   const auth = getAuth(app);
-  onAuthStateChanged(auth, (user) => (user ? onSignedIn(user) : onSignedOut()));
+
+  // Say explicitly that the session should outlive the process, rather than
+  // relying on the SDK's default. IndexedDB first, since it is the more durable
+  // of the two; localStorage is the fallback if it is unavailable.
+  //
+  // Either way this is keyed to the page's origin, which is why the renderer is
+  // served from a fixed port (see main/server.js).
+  setPersistence(auth, indexedDBLocalPersistence)
+    .catch(() => setPersistence(auth, browserLocalPersistence))
+    .catch((err) => window.tether.log(`could not set auth persistence: ${err.message}`))
+    .finally(() => {
+      onAuthStateChanged(auth, (user) => (user ? onSignedIn(user) : onSignedOut()));
+    });
+
   return auth;
 }
 

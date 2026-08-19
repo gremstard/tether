@@ -82,6 +82,14 @@ for (const refused of [
 ok('query strings are ignored when resolving',
    resolveWithinRoot(ROOT, '/assets/icon.png?v=2')?.endsWith('icon.png') === true);
 
+// ---------- renderer origin stability ----------
+// The signed-in session is stored against the page's origin, and an origin
+// includes its port. A random port each launch silently signs the user out and
+// takes their conversation and server lists with it, so the default must stay
+// fixed.
+const { PREFERRED_PORT } = require('../main/server.js');
+ok('renderer server has a fixed default port', Number.isInteger(PREFERRED_PORT) && PREFERRED_PORT > 1024);
+
 // ---------- PKCE ----------
 const { challengeFor, createPkce } = require('../main/google-auth.js');
 
